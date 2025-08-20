@@ -357,17 +357,17 @@ class HPE3PARCommon(object):
     # Valid values for volume type extra specs
     # The first value in the list is the default value
     valid_prov_values = ['thin', 'full', 'dedup']
-    valid_persona_values = ['2 - Generic-ALUA',
-                            '1 - Generic',
-                            '3 - Generic-legacy',
-                            '4 - HPUX-legacy',
-                            '5 - AIX-legacy',
-                            '6 - EGENERA',
-                            '7 - ONTAP-legacy',
-                            '8 - VMware',
-                            '9 - OpenVMS',
-                            '10 - HPUX',
-                            '11 - WindowsServer']
+    # valid_persona_values = ['2 - Generic-ALUA',
+    #                            '1 - Generic',
+    #                            '3 - Generic-legacy',
+    #                            '4 - HPUX-legacy',
+    #                            '5 - AIX-legacy',
+    #                            '6 - EGENERA',
+    #                            '7 - ONTAP-legacy',
+    #                            '8 - VMware',
+    #                            '9 - OpenVMS',
+    #                            '10 - HPUX',
+    #                            '11 - WindowsServer']
     hpe_qos_keys = ['minIOPS', 'maxIOPS', 'minBWS', 'maxBWS', 'latency',
                     'priority']
     qos_priority_level = {'low': 1, 'normal': 2, 'high': 3}
@@ -403,13 +403,18 @@ class HPE3PARCommon(object):
                 LOG.error(msg)
                 raise exception.InvalidInput(reason=msg)
 
-    def check_replication_flags(self, options, required_flags):
-        for flag in required_flags:
-            if not options.get(flag, None):
-                msg = (_('%s is not set and is required for the replication '
-                         'device to be valid.') % flag)
-                LOG.error(msg)
-                raise exception.InvalidInput(reason=msg)
+    def check_replication_flags(self, options):
+        try:
+            self.client.check_replication_flags_client(options)
+        except hpeexceptions.ClientException as ex:
+            raise exception.InvalidInput(reason=ex._error_desc)
+
+    # for flag in required_flags:
+    #     if not options.get(flag, None):
+    #         msg = (_('%s is not set and is required for the replication '
+    #                  'device to be valid.') % flag)
+    #         LOG.error(msg)
+    #         raise exception.InvalidInput(reason=msg)
 
     def _create_client(self, timeout=None):
         hpe3par_api_url = self._client_conf['hpe3par_api_url']
@@ -476,8 +481,9 @@ class HPE3PARCommon(object):
             self._get_3par_config(array_id=array_id)
             self.client = self._create_client(timeout=timeout)
             self.client_login()
-            wsapi_version = self.client.getWsApiVersion()
-            self.API_VERSION = wsapi_version['build']
+            # wsapi_version = self.client.getWsApiVersion()
+            # self.API_VERSION = wsapi_version['build']
+            self.API_VERSION = self.client.getWsApiVersionBuild()
 
             # If replication is properly configured, the primary array's
             # API version must meet the minimum requirements.
@@ -521,8 +527,9 @@ class HPE3PARCommon(object):
         if not stats or 'array_id' not in stats:
             try:
                 self.client_login()
-                info = self.client.getStorageSystemInfo()
-                self.client.id = str(info['id'])
+                #info = self.client.getStorageSystemInfo()
+                id, name = self.client.getStorageSystemIdName()
+                self.client.id = str(id)
             except Exception:
                 self.client.id = 0
             finally:
@@ -561,16 +568,17 @@ class HPE3PARCommon(object):
 
     def get_domain(self, cpg_name):
         try:
-            cpg = self.client.getCPG(cpg_name)
+            domain = self.client.getCPGDomain(cpg_name)
+            #cpg = self.client.getCPG(cpg_name)
         except hpeexceptions.HTTPNotFound:
             err = (_("Failed to get domain because CPG (%s) doesn't "
                      "exist on array.") % cpg_name)
             LOG.error(err)
             raise exception.InvalidInput(reason=err)
 
-        if 'domain' in cpg:
-            return cpg['domain']
-        return None
+        # if 'domain' in cpg:
+        #     return cpg['domain']
+        return domain
 
     def extend_volume(self, volume, new_size):
         volume_name = self._get_3par_vol_name(volume)
@@ -1474,18 +1482,15 @@ class HPE3PARCommon(object):
         # then rcg_name is different. Try to get that new rcg_name.
         if volume['migration_status'] == 'success':
             vol_name = self._get_3par_vol_name(volume)
-            vol_details = self.client.getVolume(vol_name)
-            rcg_name = vol_details.get('rcopyGroup')
-
+            rcg_name = self.client._get_3par_rcg_name_client(self, volume, vol_name)
+            
             LOG.debug("new rcg_name: %(name)s",
                       {'name': rcg_name})
             return rcg_name
         else:
             # by default, rcg_name is similar to volume name
-            rcg_name = self.client._encode_name(volume.get('_name_id')
-                                         or volume['id'])
-            rcg = "rcg-%s" % rcg_name
-            return rcg[:22]
+            rcg_name = self.client._get_3par_rcg_name_client(self, volume)
+            return rcg_name
 
     def _get_3par_remote_rcg_name(self, volume, provider_location):
         return self._get_3par_rcg_name(volume) + ".r" + (
@@ -1518,23 +1523,25 @@ class HPE3PARCommon(object):
         client_obj.deleteHost(hostname)
 
     def _get_prioritized_host_on_3par(self, host, hosts, hostname):
-        # Check whether host with wwn/iqn of initiator present on 3par
-        if hosts and hosts['members'] and 'name' in hosts['members'][0]:
-            # Retrieving 'host' and 'hosts' from 3par using hostname
-            # and wwn/iqn respectively. Compare hostname of 'host' and 'hosts',
-            # if they do not match it means 3par has a pre-existing host
-            # with some other name.
-            if host['name'] != hosts['members'][0]['name']:
-                hostname = hosts['members'][0]['name']
-                LOG.info(("Prioritize the host retrieved from wwn/iqn "
-                          "Hostname : %(hosts)s  is used instead "
-                          "of Hostname: %(host)s"),
-                         {'hosts': hostname,
-                          'host': host['name']})
-                host = self._get_3par_host(hostname)
-                return host, hostname
 
-        return host, hostname
+        return self.client._get_prioritized_host_on_3par_client(host, hosts, hostname)
+        # Check whether host with wwn/iqn of initiator present on 3par
+    # if hosts and hosts['members'] and 'name' in hosts['members'][0]:
+    #     # Retrieving 'host' and 'hosts' from 3par using hostname
+    #     # and wwn/iqn respectively. Compare hostname of 'host' and 'hosts',
+    #     # if they do not match it means 3par has a pre-existing host
+    #     # with some other name.
+    #     if host['name'] != hosts['members'][0]['name']:
+    #         hostname = hosts['members'][0]['name']
+    #         LOG.info(("Prioritize the host retrieved from wwn/iqn "
+    #                   "Hostname : %(hosts)s  is used instead "
+    #                   "of Hostname: %(host)s"),
+    #                  {'hosts': hostname,
+    #                   'host': host['name']})
+    #         host = self._get_3par_host(hostname)
+    #         return host, hostname
+
+    #    return host, hostname      
 
     def _create_3par_vlun(self, volume, hostname, nsp, lun_id=None,
                           remote_client=None):
@@ -1560,15 +1567,18 @@ class HPE3PARCommon(object):
                                                  lun=lun_id)
 
             vlun_info = None
-            if location:
-                # The LUN id is returned as part of the location URI
-                vlun = location.split(',')
-                vlun_info = {'volume_name': vlun[0],
-                             'lun_id': int(vlun[1]),
-                             'host_name': vlun[2],
-                             }
-                if len(vlun) > 3:
-                    vlun_info['nsp'] = vlun[3]
+
+            vlun_info = self.client.create_vlun_info(location)
+            
+        # if location:
+        #         # The LUN id is returned as part of the location URI
+        #         vlun = location.split(',')
+        #         vlun_info = {'volume_name': vlun[0],
+        #                      'lun_id': int(vlun[1]),
+        #                      'host_name': vlun[2],
+        #                      }
+        #         if len(vlun) > 3:
+        #             vlun_info['nsp'] = vlun[3]
 
             return vlun_info
 
@@ -1607,24 +1617,24 @@ class HPE3PARCommon(object):
     def get_ports(self):
         return self.client.getPorts()
 
-    def get_active_target_ports(self, remote_client=None):
-        if remote_client:
-            client_obj = remote_client
-            ports = remote_client.getPorts()
-        else:
-            client_obj = self.client
-            ports = self.get_ports()
-
-        target_ports = []
-        for port in ports['members']:
-            if (
-                port['mode'] == client_obj.PORT_MODE_TARGET and
-                port['linkState'] == client_obj.PORT_STATE_READY
-            ):
-                port['nsp'] = self.build_nsp(port['portPos'])
-                target_ports.append(port)
-
-        return target_ports
+    # def get_active_target_ports(self, remote_client=None):
+    #     if remote_client:
+    #         client_obj = remote_client
+    #         ports = remote_client.getPorts()
+    #     else:
+    #         client_obj = self.client
+    #         ports = self.get_ports()
+    #
+    #     target_ports = []
+    #     for port in ports['members']:
+    #         if (
+    #             port['mode'] == client_obj.PORT_MODE_TARGET and
+    #             port['linkState'] == client_obj.PORT_STATE_READY
+    #         ):
+    #             port['nsp'] = self.build_nsp(port['portPos'])
+    #             target_ports.append(port)
+    #
+    #     return target_ports
 
     def get_active_fc_target_ports(self, remote_client=None):
         ports = self.get_active_target_ports(remote_client)
@@ -1640,19 +1650,26 @@ class HPE3PARCommon(object):
 
         return fc_ports
 
+    # def get_active_iscsi_target_ports(self, remote_client=None):
+    #     ports = self.client.get_active_target_ports_client(remote_client)
+    #     if remote_client:
+    #         client_obj = remote_client
+    #     else:
+    #         client_obj = self.client
+    #
+    #     iscsi_ports = []
+    #     for port in ports:
+    #         if port['protocol'] == client_obj.PORT_PROTO_ISCSI:
+    #             iscsi_ports.append(port)
+    #
+    #     return iscsi_ports
+
     def get_active_iscsi_target_ports(self, remote_client=None):
-        ports = self.get_active_target_ports(remote_client)
-        if remote_client:
-            client_obj = remote_client
-        else:
-            client_obj = self.client
-
         iscsi_ports = []
-        for port in ports:
-            if port['protocol'] == client_obj.PORT_PROTO_ISCSI:
-                iscsi_ports.append(port)
-
+        iscsi_ports = self.client.get_active_iscsi_target_ports_client(remote_client)
+        
         return iscsi_ports
+
 
     def get_volume_stats(self,
                          refresh,
@@ -1840,12 +1857,13 @@ class HPE3PARCommon(object):
 
         found_vlun = None
         for vlun in vluns:
-            if volume_name in vlun['volumeName']:
+            volumeName, lun, portPos = self.client.get_vlun_info(vlun)
+            if volume_name in volumeName:
                 if lun_id is not None:
-                    if vlun['lun'] == lun_id:
+                    if lun == lun_id:
                         if nsp:
                             port = self.build_portPos(nsp)
-                            if vlun['portPos'] == port:
+                            if portPos == port:
                                 found_vlun = vlun
                                 break
                         else:
@@ -1867,11 +1885,14 @@ class HPE3PARCommon(object):
         In order to export a volume on a 3PAR box, we have to create a VLUN.
         """
         volume_name = self._get_3par_vol_name(volume)
-        vlun_info = self._create_3par_vlun(volume_name, host['name'], nsp,
+
+        host_name = self.client.hostNameFromHost(host)
+        
+        vlun_info = self._create_3par_vlun(volume_name, host_name, nsp,
                                            lun_id=lun_id,
                                            remote_client=remote_client)
         return self._get_vlun(volume_name,
-                              host['name'],
+                              host_name,
                               vlun_info['lun_id'],
                               nsp,
                               remote_client)
@@ -2033,16 +2054,16 @@ class HPE3PARCommon(object):
                 qos[key] = value
         return qos
 
-    # def _get_keys_by_volume_type(self, volume_type):
-    #     hpe3par_keys = {}
-    #     specs = volume_type.get('extra_specs')
-    #     for key, value in specs.items():
-    #         if ':' in key:
-    #             fields = key.split(':')
-    #             key = fields[1]
-    #         if key in self.hpe3par_valid_keys:
-    #             hpe3par_keys[key] = value
-    #     return hpe3par_keys
+    def _get_keys_by_volume_type(self, volume_type):
+        hpe3par_keys = {}
+        specs = volume_type.get('extra_specs')
+        for key, value in specs.items():
+            if ':' in key:
+                fields = key.split(':')
+                key = fields[1]
+            if key in self.hpe3par_valid_keys:
+                hpe3par_keys[key] = value
+        return hpe3par_keys
 
     def _set_qos_rule(self, qos, vvs_name):
         min_io = self._get_qos_value(qos, 'minIOPS')
@@ -2185,17 +2206,22 @@ class HPE3PARCommon(object):
 
     def get_cpg(self, volume, allowSnap=False):
         volume_name = self._get_3par_vol_name(volume)
-        vol = self.client.getVolume(volume_name)
+        #vol = self.client.getVolume(volume_name)
+        cpg = self.client.getVolumeWithCPG(volume_name, allowSnap)
+        
         # Search for 'userCPG' in the get volume REST API,
         # if found return userCPG , else search for snapCPG attribute
         # when allowSnap=True. For the cases where 3PAR REST call for
         # get volume doesn't have either userCPG or snapCPG ,
         # take the default value of cpg from 'host' attribute from volume param
-        LOG.debug("get volume response is: %s", vol)
-        if 'userCPG' in vol:
-            return vol['userCPG']
-        elif allowSnap and 'snapCPG' in vol:
-            return vol['snapCPG']
+
+        # LOG.debug("get volume response is: %s", vol)
+        # if 'userCPG' in vol:
+        #     return vol['userCPG']
+        # elif allowSnap and 'snapCPG' in vol:
+        #     return vol['snapCPG']
+        if cpg:
+            return cpg
         else:
             return volume_utils.extract_host(volume['host'], 'pool')
 
@@ -2215,10 +2241,10 @@ class HPE3PARCommon(object):
         :raises exception.InvalidInput:
         :returns: persona ID
         """
-        if persona_value not in self.valid_persona_values:
+        if persona_value not in self.client.valid_persona_values:
             err = (_("Must specify a valid persona %(valid)s,"
                      "value '%(persona)s' is invalid.") %
-                   {'valid': self.valid_persona_values,
+                   {'valid': self.client.valid_persona_values,
                    'persona': persona_value})
             LOG.error(err)
             raise exception.InvalidInput(reason=err)
@@ -2228,12 +2254,12 @@ class HPE3PARCommon(object):
         return persona_id[0]
 
     def get_persona_type(self, volume, hpe3par_keys=None):
-        default_persona = self.valid_persona_values[0]
+        default_persona = self.client.valid_persona_values[0]
         type_id = volume.get('volume_type_id', None)
         if type_id is not None:
             volume_type = self._get_volume_type(type_id)
             if hpe3par_keys is None:
-                hpe3par_keys = self.client._get_keys_by_volume_type(volume_type)
+                hpe3par_keys = self._get_keys_by_volume_type(volume_type)
         persona_value = self.client._get_key_value(hpe3par_keys, 'persona',
                                             default_persona)
         return self.validate_persona(persona_value)
@@ -2252,7 +2278,7 @@ class HPE3PARCommon(object):
         qos = {}
         if type_id is not None:
             volume_type = self._get_volume_type(type_id)
-            hpe3par_keys = self.client._get_keys_by_volume_type(volume_type)
+            hpe3par_keys = self._get_keys_by_volume_type(volume_type)
             vvs_name = self.client._get_key_value(hpe3par_keys, 'vvs')
             if vvs_name is None:
                 qos = self._get_qos_by_volume_type(volume_type)
@@ -2926,7 +2952,7 @@ class HPE3PARCommon(object):
             self.client.createSnapshot(volume_name, snap_name, optional)
 
             # by default, set convert_to_base to False
-            convert_to_base = self._get_boolean_key_value(
+            convert_to_base = self.client._get_boolean_key_value(
                 hpe3par_keys, 'convert_to_base')
 
             LOG.debug("convert_to_base: %(convert)s",
@@ -3575,10 +3601,10 @@ class HPE3PARCommon(object):
         self.delete_vlun(volume, hostname, wwn=wwn, iqn=iqn,
                          remote_client=remote_client)
 
-    def build_nsp(self, portPos):
-        return '%s:%s:%s' % (portPos['node'],
-                             portPos['slot'],
-                             portPos['cardPort'])
+    # def build_nsp(self, portPos):
+    #     return '%s:%s:%s' % (portPos['node'],
+    #                          portPos['slot'],
+    #                          portPos['cardPort'])
 
     def build_portPos(self, nsp):
         split = nsp.split(":")
@@ -3996,18 +4022,22 @@ class HPE3PARCommon(object):
         try:
             vol_name = self._get_3par_vol_name(volume)
             if remote_client:
-                host_vluns = remote_client.getHostVLUNs(host['name'])
+                host_name = self.client.hostNameFromHost(host)
+                #host_vluns = remote_client.getHostVLUNs(host['name'])
+                host_vluns = remote_client.getHostVLUNs(host_name)
             else:
-                host_vluns = self.client.getHostVLUNs(host['name'])
+                #host_vluns = self.client.getHostVLUNs(host['name'])
+                host_vluns = self.client.getHostVLUNs(host_name)
 
             for vlun in host_vluns:
-                if vlun['volumeName'] == vol_name:
+                if self.client.volumeNameForVLun(vlun) == vol_name:
+                #if vlun['volumeName'] == vol_name:
                     existing_vluns.append(vlun)
         except hpeexceptions.HTTPNotFound:
             # ignore, no existing VLUNs were found
             LOG.debug("No existing VLUNs were found for host/volume "
                       "combination: %(host)s, %(vol)s",
-                      {'host': host['name'],
+                      {'host': host_name,
                        'vol': vol_name})
         return existing_vluns
 
@@ -4215,12 +4245,18 @@ class HPE3PARCommon(object):
                 cl = None
                 try:
                     cl = self._create_replication_client(remote_array)
-                    info = cl.getStorageSystemInfo()
-                    remote_array['id'] = str(info['id'])
-                    if array_id and array_id == info['id']:
-                        self._active_backend_id = str(info['name'])
+                    # info = cl.getStorageSystemInfo()
+                    # remote_array['id'] = str(info['id'])
+                    # if array_id and array_id == info['id']:
+                    #     self._active_backend_id = str(info['name'])
 
-                    wsapi_version = cl.getWsApiVersion()['build']
+                    id, name = cl.getStorageSystemIdName()
+                    remote_array['id'] = str(id)
+                    if array_id and array_id == id:
+                        self._active_backend_id = str(name) 
+
+                    #wsapi_version = cl.getWsApiVersion()['build']
+                    wsapi_version = cl.getWsApiVersionBuild()
 
                     if wsapi_version < REMOTE_COPY_API_VERSION:
                         LOG.warning("The secondary array must have an API "
@@ -4254,12 +4290,8 @@ class HPE3PARCommon(object):
                 self._replication_enabled = True
 
     def _is_valid_replication_array(self, target):
-        required_flags = ['hpe3par_api_url', 'hpe3par_username',
-                          'hpe3par_password', 'san_ip', 'san_login',
-                          'san_password', 'backend_id',
-                          'replication_mode', 'cpg_map']
         try:
-            self.check_replication_flags(target, required_flags)
+            self.check_replication_flags(target)
             return True
         except Exception:
             return False
@@ -5622,3 +5654,4 @@ class ModifySpecsTask(flow_utils.CinderTask):
                               {'exception': ex,
                                'volume_name': volume_name,
                                'new_vvs': new_vvs})
+
