@@ -481,10 +481,12 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         else:
             client_obj = common.client
 
-        hosts = client_obj.queryHost(wwns=wwns)
+        host_found = client_obj.queryHostReturnHostname(None, wwns)
 
-        if hosts and hosts['members'] and 'name' in hosts['members'][0]:
-            host_found = hosts['members'][0]['name']
+    # hosts = client_obj.queryHost(wwns=wwns)
+    #
+    # if hosts and hosts['members'] and 'name' in hosts['members'][0]:
+    #     host_found = hosts['members'][0]['name']
 
         if host_found is not None:
             return host_found
@@ -501,10 +503,15 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
                     if path_conflict.get_code() is EXISTENT_PATH:
                         # Handle exception : EXISTENT_PATH - host WWN/iSCSI
                         # name already used by another host
-                        hosts = client_obj.queryHost(wwns=wwns)
+                        hostname = client_obj.queryHostReturnHostname(None, wwns)
+
+                        """ hosts = client_obj.queryHost(wwns=wwns)
                         if hosts and hosts['members'] and (
                                 'name' in hosts['members'][0]):
-                            hostname = hosts['members'][0]['name']
+                            hostname = hosts['members'][0]['name'] """
+                        
+                        if hostname:
+                            return hostname
                         else:
                             # re rasise last caught exception
                             ctxt.reraise = True
@@ -521,8 +528,9 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         else:
             client_obj = common.client
 
-        mod_request = {'pathOperation': client_obj.HOST_EDIT_ADD,
-                       'FCWWNs': wwn}
+        """ mod_request = {'pathOperation': client_obj.HOST_EDIT_ADD,
+                       'FCWWNs': wwn} """
+        mod_request = client_obj.create_mod_request(None, wwn)
         try:
             client_obj.modifyHost(hostname, mod_request)
         except hpeexceptions.HTTPConflict as path_conflict:
@@ -541,9 +549,12 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         if remote_target:
             cpg = common._get_cpg_from_cpg_map(
                 remote_target['cpg_map'], src_cpg)
-            cpg_obj = remote_client.getCPG(cpg)
-            if 'domain' in cpg_obj:
-                domain = cpg_obj['domain']
+            
+            domain = remote_client.getCPGDomain(cpg)
+
+            # cpg_obj = remote_client.getCPG(cpg)
+            # if 'domain' in cpg_obj:
+            #     domain = cpg_obj['domain']
         else:
             cpg = common.get_cpg(volume, allowSnap=True)
             domain = common.get_domain(cpg)
@@ -589,12 +600,12 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         """
         # get the currently configured wwns
         # from the host's FC paths
-        host_wwns = []
-        if 'FCPaths' in host:
-            for path in host['FCPaths']:
-                wwn = path.get('wwn', None)
-                if wwn is not None:
-                    host_wwns.append(wwn.lower())
+        host_wwns = common.client.get_host_wwns(host)
+    # if 'FCPaths' in host:
+    #     for path in host['FCPaths']:
+    #         wwn = path.get('wwn', None)
+    #         if wwn is not None:
+    #             host_wwns.append(wwn.lower())
 
         # lower case all wwns in the compare list
         compare_wwns = [x.lower() for x in wwns]
@@ -605,12 +616,20 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         # if any wwns found that were not in host list,
         # add them to the host
         if (len(new_wwns) > 0):
-            self._modify_3par_fibrechan_host(
+            """ self._modify_3par_fibrechan_host(
                 common, host['name'], new_wwns, remote_client)
             if remote_client:
                 host = remote_client.getHost(host['name'])
             else:
-                host = common._get_3par_host(host['name'])
+                host = common._get_3par_host(host['name']) """
+            
+            self._modify_3par_fibrechan_host(
+                common, common.client.hostNameFromHost(host), new_wwns, remote_client)
+            if remote_client:
+                host = remote_client.getHost(remote_client.hostNameFromHost(host))
+            else:
+                host = common._get_3par_host(common.client.hostNameFromHost(host))
+
         return host
 
     def _get_user_target(self, common):

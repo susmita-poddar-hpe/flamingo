@@ -654,8 +654,8 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         else:
             client_obj = common.client
 
-        host_found = client_obj.queryHostReturnHostname(iscsi_iqn)
-          
+        host_found = client_obj.queryHostReturnHostname(iscsi_iqn, None)
+
         # hosts = client_obj.queryHost(iqns=iscsi_iqn)
         #
         # if hosts and hosts['members'] and 'name' in hosts['members'][0]:
@@ -675,7 +675,7 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
                     if path_conflict.get_code() is EXISTENT_PATH:
                         # Handle exception : EXISTENT_PATH - host WWN/iSCSI
                         # name already used by another host
-                        hostname = client_obj.queryHostReturnHostname(iscsi_iqn)
+                        hostname = client_obj.queryHostReturnHostname(iscsi_iqn, None)
                         # hosts = client_obj.queryHost(iqns=iscsi_iqn)
                         # if hosts and hosts['members'] and (
                         #         'name' in hosts['members'][0]):
@@ -694,8 +694,10 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
             return hostname
 
     def _modify_3par_iscsi_host(self, common, hostname, iscsi_iqn):
-        mod_request = {'pathOperation': common.client.HOST_EDIT_ADD,
-                       'iSCSINames': [iscsi_iqn]}
+        mod_request = common.client.create_mod_request(iscsi_iqn, None)
+
+        """ mod_request = {'pathOperation': common.client.HOST_EDIT_ADD,
+                       'iSCSINames': [iscsi_iqn]} """
 
         common.client.modifyHost(hostname, mod_request)
 
@@ -704,10 +706,12 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         if not common._client_conf['hpe3par_iscsi_chap_enabled']:
             return
 
-        mod_request = {'chapOperation': common.client.HOST_EDIT_ADD,
+        mod_request = common.client.create_mod_host_chap_request(username, password)
+        
+        """ mod_request = {'chapOperation': common.client.HOST_EDIT_ADD,
                        'chapOperationMode': common.client.CHAP_INITIATOR,
                        'chapName': username,
-                       'chapSecret': password}
+                       'chapSecret': password} """
         common.client.modifyHost(hostname, mod_request)
 
     def _create_host(self, common, volume, connector,
@@ -764,11 +768,15 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
                                                     remote_client)
         else:
             if not remote_target:
-                if 'iSCSIPaths' not in host or len(host['iSCSIPaths']) < 1:
+                iSCSIPaths, len_iSCSIPaths, initiatorChapEnabled = common.client.host_iscsi_info(host)
+
+                #if 'iSCSIPaths' not in host or len(host['iSCSIPaths']) < 1:
+                if iSCSIPaths or len_iSCSIPaths < 1:
                     self._modify_3par_iscsi_host(
                         common, hostname,
                         connector['initiator'])
-                elif (not host['initiatorChapEnabled'] and
+                elif (#not host['initiatorChapEnabled'] and
+                      not initiatorChapEnabled and
                         common._client_conf['hpe3par_iscsi_chap_enabled']):
                     LOG.warning("Host exists without CHAP credentials set and "
                                 "has iSCSI attachments but CHAP is enabled. "
