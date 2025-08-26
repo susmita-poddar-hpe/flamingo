@@ -602,7 +602,7 @@ class HPE3PARCommon(object):
 
         if group.volume_type_ids is not None:
             for volume_type in group.volume_types:
-                allow_type = self.client.is_volume_group_snap_type(
+                allow_type = self.is_volume_group_snap_type(
                     volume_type)
                 if not allow_type:
                     msg = _('For a volume type to be a part of consistent '
@@ -842,7 +842,7 @@ class HPE3PARCommon(object):
         # the design for unit tests to use objects instead of dicts.
         for volume in add_volumes:
             volume_name = self._get_3par_vol_name(volume)
-            vol_snap_enable = self.client.is_volume_group_snap_type(
+            vol_snap_enable = self.is_volume_group_snap_type(
                 volume.get('volume_type'))
             try:
                 if vol_snap_enable:
@@ -1018,7 +1018,7 @@ class HPE3PARCommon(object):
         new_comment['volume_id'] = volume['id']
         new_comment['name'] = name
         new_comment['type'] = 'OpenStack'
-        self.client._add_name_id_to_comment(new_comment, volume)
+        self._add_name_id_to_comment(new_comment, volume)
 
         volume_type = None
         if volume['volume_type_id']:
@@ -1135,7 +1135,7 @@ class HPE3PARCommon(object):
         new_snap_name = self.client._get_3par_snap_name(snapshot['id'])
         new_comment['volume_id'] = volume['id']
         new_comment['volume_name'] = 'volume-' + volume['id']
-        self.client._add_name_id_to_comment(new_comment, volume)
+        self._add_name_id_to_comment(new_comment, volume)
         if snapshot.get('display_description', None):
             new_comment['description'] = snapshot['display_description']
         else:
@@ -1482,15 +1482,18 @@ class HPE3PARCommon(object):
         # then rcg_name is different. Try to get that new rcg_name.
         if volume['migration_status'] == 'success':
             vol_name = self._get_3par_vol_name(volume)
-            rcg_name = self.client._get_3par_rcg_name_client(self, volume, vol_name)
+            vol_details = self.client.getVolume(vol_name)
+            rcg_name = self.client._get_3par_rcg_name_client(vol_details)
             
             LOG.debug("new rcg_name: %(name)s",
                       {'name': rcg_name})
             return rcg_name
         else:
-            # by default, rcg_name is similar to volume name
-            rcg_name = self.client._get_3par_rcg_name_client(self, volume)
-            return rcg_name
+           # by default, rcg_name is similar to volume name
+            rcg_name = self.client._encode_name(volume.get('_name_id')
+                                         or volume['id'])
+            rcg = "rcg-%s" % rcg_name
+            return rcg[:22]
 
     def _get_3par_remote_rcg_name(self, volume, provider_location):
         return self._get_3par_rcg_name(volume) + ".r" + (
@@ -2073,7 +2076,7 @@ class HPE3PARCommon(object):
         latency = self._get_qos_value(qos, 'latency')
         priority = self._get_qos_value(qos, 'priority', 'normal')
 
-        qosRule = {}
+        """ qosRule = {}
         if min_io:
             qosRule['ioMinGoal'] = int(min_io)
             if max_io is None:
@@ -2103,7 +2106,15 @@ class HPE3PARCommon(object):
                 # convert latency to microsecs
                 qosRule['latencyGoaluSecs'] = int(latency * 1000)
         if priority:
-            qosRule['priority'] = self.qos_priority_level.get(priority.lower())
+            qosRule['priority'] = self.qos_priority_level.get(priority.lower()) """
+        
+        qosRule = {}
+
+        min_bw_KB = int(min_bw) * units.Ki
+        max_bw_KB = int(max_bw) * units.Ki
+        priorityNum = self.qos_priority_level.get(priority.lower())
+
+        qosRule = self.client.create_qos_rule(min_io, max_io, min_bw_KB, max_bw_KB, latency, priorityNum)
 
         try:
             self.client.createQoSRules(vvs_name, qosRule)
@@ -2117,11 +2128,11 @@ class HPE3PARCommon(object):
             val = self._get_key_value(hpe3par_keys, 'flash_cache', None)
             if val is not None:
                 # If requested, see if supported on back end
-                if self.API_VERSION < FLASH_CACHE_API_VERSION:
+                if self.API_VERSION < self.client.FLASH_CACHE_API_VERSION:
                     err = (_("Flash Cache Policy requires "
                              "WSAPI version '%(fcache_version)s' "
                              "version '%(version)s' is installed.") %
-                           {'fcache_version': FLASH_CACHE_API_VERSION,
+                           {'fcache_version': self.client.FLASH_CACHE_API_VERSION,
                             'version': self.API_VERSION})
                     LOG.error(err)
                     raise exception.InvalidInput(reason=err)
@@ -2140,19 +2151,22 @@ class HPE3PARCommon(object):
             compression_support = False
         if val is not None:
             info = self.client.getStorageSystemInfo()
-            systemVersion = info['systemVersion']
-            if 'licenseInfo' in info:
-                if 'licenses' in info['licenseInfo']:
-                    valid_licenses = info['licenseInfo']['licenses']
-                    compression_support = self.client._check_license_enabled(
-                        systemVersion, valid_licenses, self.COMPRESSION_LIC,
-                        "Compression")
+            systemVersion, valid_licenses = self.client.getStorageSystemVersionAndLicense(info)
+
+            # info = self.client.getStorageSystemInfo()
+            # systemVersion = info['systemVersion']
+            # if 'licenseInfo' in info:
+            #     if 'licenses' in info['licenseInfo']:
+            #         valid_licenses = info['licenseInfo']['licenses']
+            compression_support = self.client._check_license_enabled(
+                systemVersion, valid_licenses, self.client.COMPRESSION_LIC,
+                "Compression")
             # here check the wsapi version
-            if self.API_VERSION < COMPRESSION_API_VERSION:
+            if self.API_VERSION < self.client.COMPRESSION_API_VERSION:
                 err = (_("Compression Policy requires "
                          "WSAPI version '%(compression_version)s' "
                          "version '%(version)s' is installed.") %
-                       {'compression_version': COMPRESSION_API_VERSION,
+                       {'compression_version': self.client.COMPRESSION_API_VERSION,
                         'version': self.API_VERSION})
                 LOG.error(err)
                 raise exception.InvalidInput(reason=err)
@@ -2336,14 +2350,14 @@ class HPE3PARCommon(object):
             hpe3par_keys, 'convert_to_base')
 
         # if provisioning is not set use thin
-        default_prov = self.valid_prov_values[0]
+        default_prov = self.client.valid_prov_values[0]
         prov_value = self.client._get_key_value(hpe3par_keys, 'provisioning',
                                          default_prov)
         # check for valid provisioning type
-        if prov_value not in self.valid_prov_values:
+        if prov_value not in self.client.valid_prov_values:
             err = (_("Must specify a valid provisioning type %(valid)s, "
                      "value '%(prov)s' is invalid.") %
-                   {'valid': self.valid_prov_values,
+                   {'valid': self.client.valid_prov_values,
                     'prov': prov_value})
             LOG.error(err)
             raise exception.InvalidInput(reason=err)
@@ -2356,11 +2370,11 @@ class HPE3PARCommon(object):
             tpvv = False
             tdvv = True
 
-        if tdvv and (self.API_VERSION < DEDUP_API_VERSION):
+        if tdvv and (self.API_VERSION < self.client.DEDUP_API_VERSION):
             err = (_("Dedup is a valid provisioning type, "
                      "but requires WSAPI version '%(dedup_version)s' "
                      "version '%(version)s' is installed.") %
-                   {'dedup_version': DEDUP_API_VERSION,
+                   {'dedup_version': self.client.DEDUP_API_VERSION,
                     'version': self.API_VERSION})
             LOG.error(err)
             raise exception.InvalidInput(reason=err)
@@ -2413,7 +2427,7 @@ class HPE3PARCommon(object):
             comments = {'volume_id': volume['id'],
                         'name': volume['name'],
                         'type': 'OpenStack'}
-            self.client._add_name_id_to_comment(comments, volume)
+            self._add_name_id_to_comment(comments, volume)
 
             # This flag denotes group level replication on
             # hpe 3par.
@@ -2438,7 +2452,7 @@ class HPE3PARCommon(object):
 
             consis_group_snap_type = False
             if volume_type is not None:
-                consis_group_snap_type = self.client.is_volume_group_snap_type(
+                consis_group_snap_type = self.is_volume_group_snap_type(
                     volume_type)
 
             cg_id = volume.get('group_id', None)
@@ -2461,11 +2475,11 @@ class HPE3PARCommon(object):
             LOG.debug("self.API_VERSION: %(version)s",
                       {'version': self.API_VERSION})
 
-            if self.API_VERSION < API_VERSION_2023:
+            if self.API_VERSION < self.client.API_VERSION_2023:
                 extras['snapCPG'] = snap_cpg
 
             # Only set the dedup option if the backend supports it.
-            if self.API_VERSION >= DEDUP_API_VERSION:
+            if self.API_VERSION >= self.client.DEDUP_API_VERSION:
                 extras['tdvv'] = tdvv
 
             capacity = self._capacity_from_size(volume['size'])
@@ -2614,7 +2628,7 @@ class HPE3PARCommon(object):
 
         extra = {'volume_name': volume['name'],
                  'volume_id': volume['id']}
-        self.client._add_name_id_to_comment(extra, volume)
+        self._add_name_id_to_comment(extra, volume)
 
         optional = {'comment': json.dumps(extra)}
 
@@ -2929,7 +2943,7 @@ class HPE3PARCommon(object):
 
             extra = {'volume_id': volume['id'],
                      'snapshot_id': snapshot['id']}
-            self.client._add_name_id_to_comment(extra, volume)
+            self._add_name_id_to_comment(extra, volume)
 
             type_id = volume.get('volume_type_id', None)
 
@@ -3032,7 +3046,7 @@ class HPE3PARCommon(object):
 
             extra = {'volume_name': snapshot['volume_name'],
                      'volume_id': snapshot.get('volume_id')}
-            self.client._add_name_id_to_comment(extra, snapshot['volume'])
+            self._add_name_id_to_comment(extra, snapshot['volume'])
 
             try:
                 extra['display_name'] = snapshot['display_name']
@@ -3260,11 +3274,11 @@ class HPE3PARCommon(object):
 
         return {'_name_id': name_id, 'provider_location': provider_location}
 
-    # @staticmethod
-    # def _add_name_id_to_comment(comment, volume):
-    #     name_id = volume.get('_name_id')
-    #     if name_id:
-    #         comment['_name_id'] = name_id
+    @staticmethod
+    def _add_name_id_to_comment(comment, volume):
+        name_id = volume.get('_name_id')
+        if name_id:
+            comment['_name_id'] = name_id
 
     def _get_updated_comment(self, vol_name, **values):
         vol = self.client.getVolume(vol_name)
@@ -4324,14 +4338,14 @@ class HPE3PARCommon(object):
     #             rep_flag = False
     #     return rep_flag
 
-    # def is_volume_group_snap_type(self, volume_type):
-    #     consis_group_snap_type = False
-    #     if volume_type:
-    #         extra_specs = volume_type.get('extra_specs')
-    #         if 'consistent_group_snapshot_enabled' in extra_specs:
-    #             gsnap_val = extra_specs['consistent_group_snapshot_enabled']
-    #             consis_group_snap_type = (gsnap_val == "<is> True")
-    #     return consis_group_snap_type
+    def is_volume_group_snap_type(self, volume_type):
+        consis_group_snap_type = False
+        if volume_type:
+            extra_specs = volume_type.get('extra_specs')
+            if 'consistent_group_snapshot_enabled' in extra_specs:
+                gsnap_val = extra_specs['consistent_group_snapshot_enabled']
+                consis_group_snap_type = (gsnap_val == "<is> True")
+        return consis_group_snap_type
 
     def _volume_of_replicated_type(self, volume, hpe_tiramisu_check=None):
         replicated_type = False
@@ -4345,7 +4359,7 @@ class HPE3PARCommon(object):
                 replicated_type = (rep_val == "<is> True")
 
             if hpe_tiramisu_check and replicated_type:
-                hpe3par_tiramisu = self.client._get_hpe3par_tiramisu_value(
+                hpe3par_tiramisu = self._get_hpe3par_tiramisu_value(
                     volume_type)
                 if hpe3par_tiramisu:
                     replicated_type = False
@@ -4365,7 +4379,7 @@ class HPE3PARCommon(object):
                 replicated_type = (rep_val == "<is> True")
 
             if replicated_type:
-                hpe3par_tiramisu = self.client._get_hpe3par_tiramisu_value(
+                hpe3par_tiramisu = self._get_hpe3par_tiramisu_value(
                     volume_type)
                 if hpe3par_tiramisu:
                     hpe_tiramisu_type = True
@@ -4553,9 +4567,10 @@ class HPE3PARCommon(object):
             vol_name = self._get_3par_vol_name(volume)
 
             # Create remote copy group on main array.
-            rcg_targets = []
-            sync_targets = []
-            for target in self._replication_targets:
+            #rcg_targets = []
+            #sync_targets = []
+
+            """ for target in self._replication_targets:
                 # Only add targets that match the volumes replication mode.
                 if target['replication_mode'] == replication_mode_num:
                     cpg = self.client._get_cpg_from_cpg_map(target['cpg_map'],
@@ -4568,15 +4583,26 @@ class HPE3PARCommon(object):
                     rcg_targets.append(rcg_target)
                     sync_target = {'targetName': target['backend_id'],
                                    'syncPeriod': replication_sync_period}
-                    sync_targets.append(sync_target)
+                    sync_targets.append(sync_target) """
 
-            optional = {'localUserCPG': local_cpg}
+            """ optional = {'localUserCPG': local_cpg}
             if self.API_VERSION < API_VERSION_2023:
-                optional['localSnapCPG'] = vol_settings['snap_cpg']
+                optional['localSnapCPG'] = vol_settings['snap_cpg'] """
+            
             pool = volume_utils.extract_host(volume['host'], level='pool')
             domain = self.get_domain(pool)
-            if domain:
-                optional["domain"] = domain
+            """ if domain:
+                optional["domain"] = domain """
+
+            rcg_targets, optional = self.client.createRemoteCopyGroupPayload(
+                targets,
+                replication_mode_num,
+                local_cpg,
+                vol_settings['snap_cpg'],
+                domain,
+                self.API_VERSION
+            )
+
             try:
                 self.client.createRemoteCopyGroup(rcg_name, rcg_targets,
                                                   optional)
@@ -4590,14 +4616,22 @@ class HPE3PARCommon(object):
             LOG.debug("created rcg %(name)s", {'name': rcg_name})
 
             # Add volume to remote copy group.
-            rcg_targets = []
+            """ rcg_targets = []
             for target in self._replication_targets:
                 # Only add targets that match the volumes replication mode.
                 if target['replication_mode'] == replication_mode_num:
                     rcg_target = {'targetName': target['backend_id'],
                                   'secVolumeName': vol_name}
                     rcg_targets.append(rcg_target)
-            optional = {'volumeAutoCreation': True}
+            optional = {'volumeAutoCreation': True} """
+
+            # Add volume to remote copy group.
+            targets = self._replication_targets
+            rcg_targets, optional = self.client.add_vol_to_remote_copy_group_params(
+                targets,
+                replication_mode_num,
+                vol_name
+            )
             try:
                 self.client.addVolumeToRemoteCopyGroup(rcg_name, vol_name,
                                                        rcg_targets,
@@ -4613,15 +4647,19 @@ class HPE3PARCommon(object):
             # Remote Copy Group to have a sync period.
             if replication_sync_period and (
                replication_mode_num == self.PERIODIC):
-                opt = {'targets': sync_targets}
+                opt = self.client.modifyRemoteCopyGroupPayloadSyncTargets(
+                    targets,
+                    replication_mode_num,
+                    replication_sync_period
+                )
+                #opt = {'targets': sync_targets}
                 try:
                     self.client.modifyRemoteCopyGroup(rcg_name, opt)
                 except Exception as ex:
-                    msg = (_("There was an error setting the sync period for "
-                             "the remote copy group: %s.") %
-                           str(ex))
-                    LOG.error(msg)
-                    raise exception.VolumeBackendAPIException(data=msg)
+                        msg = (_("There was an error setting the sync period for "
+                                    "the remote copy group: %s.") %str(ex))
+                        LOG.error(msg)
+                        raise exception.VolumeBackendAPIException(data=msg)
 
             # Check if we are in sync mode and quorum_witness_ip is present.
             # If yes, add options for Peer Persistence (PP)
@@ -4632,10 +4670,11 @@ class HPE3PARCommon(object):
 
                 if quorum_witness_ip:
                     LOG.debug('setting pp_params')
-                    pp_params = {'targets': [
+                    """ pp_params = {'targets': [
                         {'policies': {'autoFailover': True,
                                       'pathManagement': True,
-                                      'autoRecover': True}}]}
+                                      'autoRecover': True}}]} """
+                    pp_params = self.client.modifyRemoteCopyGroupPayloadPpParams()
                     try:
                         self.client.modifyRemoteCopyGroup(rcg_name, pp_params)
                     except Exception as ex:
@@ -4773,14 +4812,14 @@ class HPE3PARCommon(object):
     #     return self.client._get_3par_rcg_name_of_group(group_id) + ".r" + (
     #         str(provider_location))
 
-    # def _get_hpe3par_tiramisu_value(self, volume_type):
-    #     hpe3par_tiramisu = False
-    #     hpe3par_keys = self.client._get_keys_by_volume_type(volume_type)
-    #     if hpe3par_keys.get('group_replication'):
-    #         hpe3par_tiramisu = (
-    #             hpe3par_keys['group_replication'] == "<is> True")
+    def _get_hpe3par_tiramisu_value(self, volume_type):
+        hpe3par_tiramisu = False
+        hpe3par_keys = self._get_keys_by_volume_type(volume_type)
+        if hpe3par_keys.get('group_replication'):
+            hpe3par_tiramisu = (
+                hpe3par_keys['group_replication'] == "<is> True")
 
-    #     return hpe3par_tiramisu
+        return hpe3par_tiramisu
 
     def _stop_remote_copy_group(self, group):
         # Stop remote copy.
@@ -4794,8 +4833,13 @@ class HPE3PARCommon(object):
     def _start_remote_copy_group(self, group):
         # Start remote copy.
         rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
-        rcg = self.client.getRemoteCopyGroup(rcg_name)
+
+        """ rcg = self.client.getRemoteCopyGroup(rcg_name)
         if not rcg['volumes']:
+            return """
+        
+        rcg_volumes = self.client.getRemoteCopyGroupVolumes(rcg_name)
+        if not rcg_volumes:
             return
         try:
             self.client.startRemoteCopy(rcg_name)
@@ -4835,22 +4879,22 @@ class HPE3PARCommon(object):
     def _get_replication_mode_from_volume(self, volume):
         volume_type = self._get_volume_type(volume["volume_type_id"])
         replication_mode_num = (
-            self.client._get_replication_mode_from_volume_type(volume_type))
+            self._get_replication_mode_from_volume_type(volume_type))
 
         return replication_mode_num
 
-    # def _get_replication_mode_from_volume_type(self, volume_type):
-    #     # Default replication mode is PERIODIC
-    #     replication_mode_num = self.PERIODIC
-    #     extra_specs = volume_type.get("extra_specs")
-    #     if extra_specs:
-    #         replication_mode = extra_specs.get(
-    #             self.EXTRA_SPEC_REP_MODE, self.DEFAULT_REP_MODE)
+    def _get_replication_mode_from_volume_type(self, volume_type):
+        # Default replication mode is PERIODIC
+        replication_mode_num = self.PERIODIC
+        extra_specs = volume_type.get("extra_specs")
+        if extra_specs:
+            replication_mode = extra_specs.get(
+                self.EXTRA_SPEC_REP_MODE, self.DEFAULT_REP_MODE)
 
-    #         replication_mode_num = self.client._get_remote_copy_mode_num(
-    #             replication_mode)
+            replication_mode_num = self.client._get_remote_copy_mode_num(
+                replication_mode)
 
-    #     return replication_mode_num
+        return replication_mode_num
 
     def _get_replication_sync_period_from_volume(self, volume):
         volume_type = self._get_volume_type(volume["volume_type_id"])
@@ -4861,18 +4905,24 @@ class HPE3PARCommon(object):
 
     def _get_replication_sync_period_from_volume_type(self, volume_type):
         # Default replication sync period is 900s
-        try:
-            replication_sync_period = self.client._get_replication_sync_period_from_volume_type_client(volume_type)
+        replication_sync_period = self.DEFAULT_SYNC_PERIOD
+        rep_mode = self.DEFAULT_REP_MODE
+        extra_specs = volume_type.get("extra_specs")
+        if extra_specs:
+            replication_sync_period = extra_specs.get(
+                self.EXTRA_SPEC_REP_SYNC_PERIOD, self.DEFAULT_SYNC_PERIOD)
 
-        except hpeexceptions.ClientException:
-            msg = _("The replication mode was not configured "
+            replication_sync_period = int(replication_sync_period)
+            if not self._is_replication_mode_correct(rep_mode,
+                                                     replication_sync_period):
+                msg = _("The replication mode was not configured "
                         "correctly in the volume type extra_specs. "
                         "If replication:mode is periodic, "
                         "replication:sync_period must also be specified "
                         "and be between 300 and 31622400 seconds.")
-            LOG.error(msg)
-            raise exception.VolumeBackendAPIException(data=msg)
-        
+                LOG.error(msg)
+                raise exception.VolumeBackendAPIException(data=msg)
+
         return replication_sync_period
 
     def _check_replication_matched(self, volume, group):
@@ -4924,11 +4974,18 @@ class HPE3PARCommon(object):
     def _add_vol_to_remote_copy_group(self, group, volume):
         rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
         try:
-            rcg = self.client.getRemoteCopyGroup(rcg_name)
+            rcg_volumes = self.client.getRemoteCopyGroupVolumes(rcg_name)
+
+            """ rcg = self.client.getRemoteCopyGroup(rcg_name)
             # If volumes are not present in RCG, which means we need to set,
             # RCG attributes.
             if not len(rcg['volumes']):
                 self._set_rcg_attributes(volume, rcg_name)
+ """
+            # If volumes are not present in RCG, which means we need to set,
+            # RCG attributes.
+            if not len(rcg_volumes):
+                self._set_rcg_attributes(volume, rcg_name)  
 
             self._add_vol_to_remote(volume, rcg_name)
             # If replication mode is periodic then set sync period on RCG.
@@ -4955,7 +5012,7 @@ class HPE3PARCommon(object):
 
         # Check and see if we are in periodic mode. If we are, update
         # Remote Copy Group to have a sync period.
-        if len(rcg['volumes']) and 'syncPeriod' in rcg['targets'][0]:
+        """ if len(rcg['volumes']) and 'syncPeriod' in rcg['targets'][0]:
             if replication_sync_period != int(rcg['targets'][0]['syncPeriod']):
                 for target in self._replication_targets:
                     if target['replication_mode'] == replication_mode_num:
@@ -4972,7 +5029,26 @@ class HPE3PARCommon(object):
                              "the remote copy group: %s.") %
                            str(ex))
                     LOG.error(msg)
-                    raise exception.VolumeBackendAPIException(data=msg)
+                    raise exception.VolumeBackendAPIException(data=msg) """
+        
+        # Check and see if we are in periodic mode. If we are, update
+        # Remote Copy Group to have a sync period.
+        if self.client.getRemoteCopyVolumesAndSyncPeriod(rcg, replication_sync_period):
+            targets = self._replication_targets
+            opt = self.client.modifyRemoteCopyGroupPayloadSyncTargets(
+                targets,
+                replication_mode_num,
+                replication_sync_period
+            )
+            try:
+                self.client.modifyRemoteCopyGroup(rcg_name, opt)
+            except Exception as ex:
+                msg = (_("There was an error setting the sync period for "
+                          "the remote copy group: %s.") % str(ex))
+                LOG.error(msg)
+                raise exception.VolumeBackendAPIException(data=msg)
+
+
 
     def _set_rcg_attributes(self, volume, rcg_name):
         rcg_targets = []
@@ -4980,10 +5056,12 @@ class HPE3PARCommon(object):
         local_cpg = vol_settings['cpg']
         replication_mode_num = self._get_replication_mode_from_volume(volume)
 
-        for target in self._replication_targets:
+        """ for target in self._replication_targets:
             if target['replication_mode'] == replication_mode_num:
                 cpg = self.client._get_cpg_from_cpg_map(target['cpg_map'],
                                                  local_cpg)
+                
+                
                 rcg_target = {'targetName': target['backend_id'],
                               'remoteUserCPG': cpg,
                               'remoteSnapCPG': cpg}
@@ -4991,7 +5069,16 @@ class HPE3PARCommon(object):
 
         optional = {'localSnapCPG': vol_settings['snap_cpg'],
                     'localUserCPG': local_cpg,
-                    'targets': rcg_targets}
+                    'targets': rcg_targets} """
+        
+
+        targets = self._replication_targets
+        optional = self.client.modifyRemoteCopyGroupPayload(
+            targets,
+            replication_mode_num,
+            vol_settings['snap_cpg'],
+            local_cpg
+        )
 
         try:
             self.client.modifyRemoteCopyGroup(rcg_name, optional)
@@ -5007,12 +5094,21 @@ class HPE3PARCommon(object):
         rcg_targets = []
         vol_name = self._get_3par_vol_name(volume)
         replication_mode_num = self._get_replication_mode_from_volume(volume)
-        for target in self._replication_targets:
+        """ for target in self._replication_targets:
             if target['replication_mode'] == replication_mode_num:
                 rcg_target = {'targetName': target['backend_id'],
                               'secVolumeName': vol_name}
                 rcg_targets.append(rcg_target)
-        optional = {'volumeAutoCreation': True}
+        optional = {'volumeAutoCreation': True} """
+
+
+        targets = self._replication_targets
+        rcg_targets, optional = self.client.add_vol_to_remote_copy_group_params(
+            targets,
+            replication_mode_num,
+            vol_name
+        )
+
         try:
             self.client.addVolumeToRemoteCopyGroup(rcg_name, vol_name,
                                                    rcg_targets,
@@ -5066,7 +5162,7 @@ class HPE3PARCommon(object):
             self._check_tiramisu_configuration_on_volume_type(volume_type)
 
     def _check_tiramisu_configuration_on_volume_type(self, volume_type):
-        hpe3par_tiramisu = self.client._get_hpe3par_tiramisu_value(volume_type)
+        hpe3par_tiramisu = self._get_hpe3par_tiramisu_value(volume_type)
         if not hpe3par_tiramisu:
             msg = _("hpe3par:group_replication is not set on volume type: "
                     "(id)%s") % {'id': volume_type.get('id')}
@@ -5089,7 +5185,7 @@ class HPE3PARCommon(object):
 
         for volume_type in group.volume_types:
             replication_mode_num = (
-                self.client._get_replication_mode_from_volume_type(volume_type))
+                self._get_replication_mode_from_volume_type(volume_type))
             rep_modes.append(replication_mode_num)
 
             if replication_mode_num == self.PERIODIC:
@@ -5120,7 +5216,7 @@ class HPE3PARCommon(object):
 
         rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
         replication_mode_num = (
-            self.client._get_replication_mode_from_volume_type(group.volume_types[0]))
+            self._get_replication_mode_from_volume_type(group.volume_types[0]))
 
         for target in self._replication_targets:
             if (target['replication_mode'] == replication_mode_num):
