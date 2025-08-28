@@ -403,18 +403,13 @@ class HPE3PARCommon(object):
                 LOG.error(msg)
                 raise exception.InvalidInput(reason=msg)
 
-    def check_replication_flags(self, options):
-        try:
-            self.client.check_replication_flags_client(options)
-        except hpeexceptions.ClientException as ex:
-            raise exception.InvalidInput(reason=ex._error_desc)
-
-    # for flag in required_flags:
-    #     if not options.get(flag, None):
-    #         msg = (_('%s is not set and is required for the replication '
-    #                  'device to be valid.') % flag)
-    #         LOG.error(msg)
-    #         raise exception.InvalidInput(reason=msg)
+    def check_replication_flags(self, options, required_flags):
+        for flag in required_flags:
+            if not options.get(flag, None):
+                msg = (_('%s is not set and is required for the replication '
+                         'device to be valid.') % flag)
+                LOG.error(msg)
+                raise exception.InvalidInput(reason=msg)
 
     def _create_client(self, timeout=None):
         hpe3par_api_url = self._client_conf['hpe3par_api_url']
@@ -488,13 +483,13 @@ class HPE3PARCommon(object):
             # If replication is properly configured, the primary array's
             # API version must meet the minimum requirements.
             if self._replication_enabled and (
-               self.API_VERSION < REMOTE_COPY_API_VERSION):
+               self.API_VERSION < self.client.REMOTE_COPY_API_VERSION):
                 self._replication_enabled = False
                 LOG.error("The primary array must have an API version of "
                           "%(min_ver)s or higher, but is only on "
                           "%(current_ver)s, therefore replication is not "
                           "supported.",
-                          {'min_ver': REMOTE_COPY_API_VERSION,
+                          {'min_ver': self.client.REMOTE_COPY_API_VERSION,
                            'current_ver': self.API_VERSION})
         except hpeexceptions.UnsupportedVersion as ex:
             # In the event we cannot contact the configured primary array,
@@ -528,6 +523,7 @@ class HPE3PARCommon(object):
             try:
                 self.client_login()
                 #info = self.client.getStorageSystemInfo()
+                #name not used will throw error
                 id, name = self.client.getStorageSystemIdName()
                 self.client.id = str(id)
             except Exception:
@@ -1528,23 +1524,23 @@ class HPE3PARCommon(object):
     def _get_prioritized_host_on_3par(self, host, hosts, hostname):
 
         return self.client._get_prioritized_host_on_3par_client(host, hosts, hostname)
-        # Check whether host with wwn/iqn of initiator present on 3par
-    # if hosts and hosts['members'] and 'name' in hosts['members'][0]:
-    #     # Retrieving 'host' and 'hosts' from 3par using hostname
-    #     # and wwn/iqn respectively. Compare hostname of 'host' and 'hosts',
-    #     # if they do not match it means 3par has a pre-existing host
-    #     # with some other name.
-    #     if host['name'] != hosts['members'][0]['name']:
-    #         hostname = hosts['members'][0]['name']
-    #         LOG.info(("Prioritize the host retrieved from wwn/iqn "
-    #                   "Hostname : %(hosts)s  is used instead "
-    #                   "of Hostname: %(host)s"),
-    #                  {'hosts': hostname,
-    #                   'host': host['name']})
-    #         host = self._get_3par_host(hostname)
-    #         return host, hostname
+        """ # Check whether host with wwn/iqn of initiator present on 3par
+        if hosts and hosts['members'] and 'name' in hosts['members'][0]:
+            # Retrieving 'host' and 'hosts' from 3par using hostname
+            # and wwn/iqn respectively. Compare hostname of 'host' and 'hosts',
+            # if they do not match it means 3par has a pre-existing host
+            # with some other name.
+            if host['name'] != hosts['members'][0]['name']:
+                hostname = hosts['members'][0]['name']
+                LOG.info(("Prioritize the host retrieved from wwn/iqn "
+                          "Hostname : %(hosts)s  is used instead "
+                          "of Hostname: %(host)s"),
+                         {'hosts': hostname,
+                          'host': host['name']})
+                host = self._get_3par_host(hostname)
+                return host, hostname
 
-    #    return host, hostname      
+        return host, hostname """
 
     def _create_3par_vlun(self, volume, hostname, nsp, lun_id=None,
                           remote_client=None):
@@ -1620,24 +1616,27 @@ class HPE3PARCommon(object):
     def get_ports(self):
         return self.client.getPorts()
 
-    # def get_active_target_ports(self, remote_client=None):
-    #     if remote_client:
-    #         client_obj = remote_client
-    #         ports = remote_client.getPorts()
-    #     else:
-    #         client_obj = self.client
-    #         ports = self.get_ports()
-    #
-    #     target_ports = []
-    #     for port in ports['members']:
-    #         if (
-    #             port['mode'] == client_obj.PORT_MODE_TARGET and
-    #             port['linkState'] == client_obj.PORT_STATE_READY
-    #         ):
-    #             port['nsp'] = self.build_nsp(port['portPos'])
-    #             target_ports.append(port)
-    #
-    #     return target_ports
+    def get_active_target_ports(self, remote_client=None):
+        if remote_client:
+            client_obj = remote_client
+            ports = remote_client.getPorts()
+        else:
+            client_obj = self.client
+            ports = self.get_ports()  
+
+        target_ports = self.client.get_active_target_ports_client(ports)  
+
+        """ target_ports = []
+        for port in ports['members']:
+            if (
+                port['mode'] == client_obj.PORT_MODE_TARGET and
+                port['linkState'] == client_obj.PORT_STATE_READY
+            ):
+                port['nsp'] = self.build_nsp(port['portPos'])
+                target_ports.append(port)
+
+        return target_ports """
+        return target_ports
 
     def get_active_fc_target_ports(self, remote_client=None):
         ports = self.get_active_target_ports(remote_client)
@@ -1646,32 +1645,33 @@ class HPE3PARCommon(object):
         else:
             client_obj = self.client
 
-        fc_ports = []
+        """ fc_ports = []
         for port in ports:
             if port['protocol'] == client_obj.PORT_PROTO_FC:
                 fc_ports.append(port)
 
+        return fc_ports """
+
+        fc_ports = client_obj.get_active_protocol_ports(ports, fc_proto=True)
         return fc_ports
 
-    # def get_active_iscsi_target_ports(self, remote_client=None):
-    #     ports = self.client.get_active_target_ports_client(remote_client)
-    #     if remote_client:
-    #         client_obj = remote_client
-    #     else:
-    #         client_obj = self.client
-    #
-    #     iscsi_ports = []
-    #     for port in ports:
-    #         if port['protocol'] == client_obj.PORT_PROTO_ISCSI:
-    #             iscsi_ports.append(port)
-    #
-    #     return iscsi_ports
-
     def get_active_iscsi_target_ports(self, remote_client=None):
-        iscsi_ports = []
-        iscsi_ports = self.client.get_active_iscsi_target_ports_client(remote_client)
-        
+        ports = self.get_active_target_ports(remote_client)
+        if remote_client:
+            client_obj = remote_client
+        else:
+            client_obj = self.client
+
+        """ iscsi_ports = []
+        for port in ports:
+            if port['protocol'] == client_obj.PORT_PROTO_ISCSI:
+                iscsi_ports.append(port)
+
+        return iscsi_ports """
+
+        iscsi_ports = client_obj.get_active_protocol_ports(ports, iscsi_proto=True)
         return iscsi_ports
+
 
 
     def get_volume_stats(self,
@@ -4014,15 +4014,24 @@ class HPE3PARCommon(object):
         try:
             vol_name = self._get_3par_vol_name(volume)
             if remote_client:
-                host_vluns = remote_client.getHostVLUNs(host['name'])
+                client_obj = remote_client
+                
             else:
-                host_vluns = self.client.getHostVLUNs(host['name'])
+                client_obj = self.client
+                
+            hostName = client_obj.hostNameFromHost(host)
+            host_vluns = client_obj.getHostVLUNs(hostName)
 
             # The first existing VLUN found will be returned.
             for vlun in host_vluns:
-                if vlun['volumeName'] == vol_name:
+                vlunVolName = client_obj.volumeNameForVLun(vlun)
+                if vlunVolName == vol_name:
                     existing_vlun = vlun
                     break
+                
+                """ if vlun['volumeName'] == vol_name:
+                    existing_vlun = vlun
+                    break """
         except hpeexceptions.HTTPNotFound:
             # ignore, no existing VLUNs were found
             LOG.debug("No existing VLUNs were found for host/volume "
@@ -4036,10 +4045,11 @@ class HPE3PARCommon(object):
         try:
             vol_name = self._get_3par_vol_name(volume)
             if remote_client:
-                host_name = self.client.hostNameFromHost(host)
+                host_name = remote_client.hostNameFromHost(host)
                 #host_vluns = remote_client.getHostVLUNs(host['name'])
                 host_vluns = remote_client.getHostVLUNs(host_name)
             else:
+                host_name = self.client.hostNameFromHost(host)
                 #host_vluns = self.client.getHostVLUNs(host['name'])
                 host_vluns = self.client.getHostVLUNs(host_name)
 
@@ -4263,7 +4273,7 @@ class HPE3PARCommon(object):
                     # remote_array['id'] = str(info['id'])
                     # if array_id and array_id == info['id']:
                     #     self._active_backend_id = str(info['name'])
-
+                    # TODO need to be discussed
                     id, name = cl.getStorageSystemIdName()
                     remote_array['id'] = str(id)
                     if array_id and array_id == id:
@@ -4272,14 +4282,14 @@ class HPE3PARCommon(object):
                     #wsapi_version = cl.getWsApiVersion()['build']
                     wsapi_version = cl.getWsApiVersionBuild()
 
-                    if wsapi_version < REMOTE_COPY_API_VERSION:
+                    if wsapi_version < self.client.REMOTE_COPY_API_VERSION:
                         LOG.warning("The secondary array must have an API "
                                     "version of %(min_ver)s or higher. Array "
                                     "'%(target)s' is on %(target_ver)s, "
                                     "therefore it will not be added as a "
                                     "valid replication target.",
                                     {'target': array_name,
-                                     'min_ver': REMOTE_COPY_API_VERSION,
+                                     'min_ver': self.client.REMOTE_COPY_API_VERSION,
                                      'target_ver': wsapi_version})
                     elif not self._is_valid_replication_array(remote_array):
                         LOG.warning("'%s' is not a valid replication array. "
@@ -4304,8 +4314,12 @@ class HPE3PARCommon(object):
                 self._replication_enabled = True
 
     def _is_valid_replication_array(self, target):
+        required_flags = ['hpe3par_api_url', 'hpe3par_username',
+                          'hpe3par_password', 'san_ip', 'san_login',
+                          'san_password', 'backend_id',
+                          'replication_mode', 'cpg_map']
         try:
-            self.check_replication_flags(target)
+            self.check_replication_flags(target, required_flags)
             return True
         except Exception:
             return False
@@ -4484,17 +4498,16 @@ class HPE3PARCommon(object):
                 self.config.target_ip_address)
             self._client_conf['iscsi_port'] = self.config.target_port
 
-    # def _get_cpg_from_cpg_map(self, cpg_map, target_cpg):
-    #         ret_target_cpg = None
-    #         cpg_pairs = cpg_map.split(' ')
-    #         for cpg_pair in cpg_pairs:
-    #             cpgs = cpg_pair.split(':')
-    #             cpg = cpgs[0]
-    #             dest_cpg = cpgs[1]
-    #             if cpg == target_cpg:
-    #                 ret_target_cpg = dest_cpg
-    #
-    #         return ret_target_cpg
+    def _get_cpg_from_cpg_map(self, cpg_map, target_cpg):
+        ret_target_cpg = None
+        cpg_pairs = cpg_map.split(' ')
+        for cpg_pair in cpg_pairs:
+            cpgs = cpg_pair.split(':')
+            cpg = cpgs[0]
+            dest_cpg = cpgs[1]
+            if cpg == target_cpg:
+                ret_target_cpg = dest_cpg
+        return ret_target_cpg
 
     # def _generate_hpe3par_cpgs(self, cpg_map):
     #     hpe3par_cpgs = []
