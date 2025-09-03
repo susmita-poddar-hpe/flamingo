@@ -523,7 +523,7 @@ class HPE3PARCommon(object):
             try:
                 self.client_login()
                 #info = self.client.getStorageSystemInfo()
-                #name not used will throw error
+                #name not used will throw ZUUL error
                 id, name = self.client.getStorageSystemIdName()
                 self.client.id = str(id)
             except Exception:
@@ -1241,7 +1241,7 @@ class HPE3PARCommon(object):
         # Rename the snapshots's name to ums-* format so that it can be
         # easily found later.
         snap_name = self.client._get_3par_snap_name(snapshot['id'])
-        new_snap_name = self._get_3par_ums_name(snapshot['id'])
+        new_snap_name = self.client._get_3par_ums_name(snapshot['id'])
         self.client.modifyVolume(snap_name, {'newName': new_snap_name})
 
         LOG.info("Snapshot %(disp)s '%(vol)s' is no longer managed. "
@@ -1356,9 +1356,15 @@ class HPE3PARCommon(object):
         source-id element. If source-name or source-id is not present an
         error will be thrown.
         """
-        try:
-            vol_name = self.client._get_existing_volume_ref_name_client(existing_ref, is_snapshot)
-        except hpeexceptions.ClientException:
+        vol_name = None
+        if 'source-name' in existing_ref:
+            vol_name = existing_ref['source-name']
+        elif 'source-id' in existing_ref:
+            if is_snapshot:
+                vol_name = self.client._get_3par_ums_name(existing_ref['source-id'])
+            else:
+                vol_name = self.client._get_3par_unm_name(existing_ref['source-id'])
+        else:
             reason = _("Reference must contain source-name or source-id.")
             raise exception.ManageExistingInvalidReference(
                 existing_ref=existing_ref,
@@ -2020,7 +2026,7 @@ class HPE3PARCommon(object):
     #         return default
 
     def _get_boolean_key_value(self, hpe3par_keys, key, default=False):
-        value = self._get_key_value(
+        value = self.client._get_key_value(
             hpe3par_keys, key, default)
         if isinstance(value, str):
             if value.lower() == 'true':
@@ -3962,7 +3968,7 @@ class HPE3PARCommon(object):
             self._volume_of_hpe_tiramisu_type_and_part_of_group(volume))
         if volume_part_of_group:
             group = volume.get('group')
-            rcg_name = self._get_3par_rcg_name_of_group(group.id)
+            rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
 
         optional = {}
         replication_flag = self._volume_of_replicated_type(
@@ -4255,7 +4261,7 @@ class HPE3PARCommon(object):
                 remote_array['managed_backend_name'] = (
                     dev.get('managed_backend_name'))
                 remote_array['replication_mode'] = (
-                    self._get_remote_copy_mode_num(
+                    self.client._get_remote_copy_mode_num(
                         dev.get('replication_mode')))
                 remote_array['san_ssh_port'] = (
                     dev.get('san_ssh_port', self.config.san_ssh_port))
@@ -4518,14 +4524,14 @@ class HPE3PARCommon(object):
                 ret_target_cpg = dest_cpg
         return ret_target_cpg
 
-    # def _generate_hpe3par_cpgs(self, cpg_map):
-    #     hpe3par_cpgs = []
-    #     cpg_pairs = cpg_map.split(' ')
-    #     for cpg_pair in cpg_pairs:
-    #         cpgs = cpg_pair.split(':')
-    #         hpe3par_cpgs.append(cpgs[1])
-    #     
-    #     return hpe3par_cpgs
+    def _generate_hpe3par_cpgs(self, cpg_map):
+        hpe3par_cpgs = []
+        cpg_pairs = cpg_map.split(' ')
+        for cpg_pair in cpg_pairs:
+            cpgs = cpg_pair.split(':')
+            hpe3par_cpgs.append(cpgs[1])
+    
+        return hpe3par_cpgs
 
     def _get_replication_targets(self):
         replication_targets = []
@@ -4941,7 +4947,7 @@ class HPE3PARCommon(object):
                 self.EXTRA_SPEC_REP_SYNC_PERIOD, self.DEFAULT_SYNC_PERIOD)
 
             replication_sync_period = int(replication_sync_period)
-            if not self._is_replication_mode_correct(rep_mode,
+            if not self.client._is_replication_mode_correct(rep_mode,
                                                      replication_sync_period):
                 msg = _("The replication mode was not configured "
                         "correctly in the volume type extra_specs. "
@@ -5339,10 +5345,21 @@ class HPE3PARCommon(object):
         """
 
         model_update = {}
+        if not group.is_replicated:
+            raise NotImplementedError()
 
+        if not volumes:
+            # Return if empty group
+            return model_update, None
+        
         try:
-            model_update = self.client.enable_replication_client(group, volumes)
+            vvs_name = self.client._get_3par_vvs_name(group.id)
+            rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
 
+            # Check VV and RCG exist on 3par,
+            # if RCG exist then start RCG
+            self.client.getVolumeSet(vvs_name)
+            self.client.startRemoteCopy(rcg_name)
         except hpeexceptions.HTTPNotFound as ex:
             # The remote-copy group does not exist or
             # set does not exist.
@@ -5352,7 +5369,7 @@ class HPE3PARCommon(object):
             # The remote-copy group has already been started.
             if ex.get_code() == 215:
                 pass
-        except hpeexceptions.ClientException as ex:
+        except Exception as ex:
             model_update.update({
                 'replication_status': fields.ReplicationStatus.ERROR})
             LOG.error("Error enabling replication on group %(group)s. "
@@ -5360,7 +5377,6 @@ class HPE3PARCommon(object):
                       {'group': group.id, 'e': ex})
 
         return model_update, None
-    
     
 
     def disable_replication(self, context, group, volumes):
@@ -5373,21 +5389,33 @@ class HPE3PARCommon(object):
         """
 
         model_update = {}
-        try:
-            model_update = self.client.disable_replication_client(group, volumes)
+        if not group.is_replicated:
+            raise NotImplementedError()
 
+        if not volumes:
+            # Return if empty group
+            return model_update, None
+
+        try:
+            vvs_name = self.client._get_3par_vvs_name(group.id)
+            rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
+
+            # Check VV and RCG exist on 3par,
+            # if RCG exist then stop RCG
+            self.client.getVolumeSet(vvs_name)
+            self.client.stopRemoteCopy(rcg_name)
         except hpeexceptions.HTTPNotFound as ex:
             # The remote-copy group does not exist or
             # set does not exist.
             if (ex.get_code() == 187 or ex.get_code() == 102):
                 raise exception.GroupNotFound(group_id=group.id)
 
-        except hpeexceptions.ClientException as ex:
+        except Exception as ex:
             model_update.update({
                 'replication_status': fields.ReplicationStatus.ERROR})
             LOG.error("Error disabling replication on group %(group)s. "
                       "Exception received: %(e)s.",
-                      {'group': group.id, 'e': ex})   
+                      {'group': group.id, 'e': ex})
 
         return model_update, None
 
