@@ -169,12 +169,12 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         finally:
             self._logout(common)
 
-    def _update_dicts(self, temp_iscsi_ip, iscsi_ip_list, ip, port):
-        ip_port = temp_iscsi_ip[ip]['ip_port']
-        iscsi_ip_list[ip] = {'ip_port': ip_port,
-                             'nsp': port['nsp'],
-                             'iqn': port['iSCSIName']}
-        del temp_iscsi_ip[ip]
+    # def _update_dicts(self, temp_iscsi_ip, iscsi_ip_list, ip, port):
+    #     ip_port = temp_iscsi_ip[ip]['ip_port']
+    #     iscsi_ip_list[ip] = {'ip_port': ip_port,
+    #                          'nsp': port['nsp'],
+    #                          'iqn': port['iSCSIName']}
+    #     del temp_iscsi_ip[ip]
 
     def initialize_iscsi_ports(self, common,
                                remote_target=None, remote_client=None):
@@ -192,28 +192,29 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         # use the 3PAR ip_addr list for iSCSI configuration
         if len(backend_conf['hpe3par_iscsi_ips']) > 0:
             # add port values to ip_addr, if necessary
-            for ip_addr in backend_conf['hpe3par_iscsi_ips']:
-                if "." in ip_addr:
-                    # v4
-                    ip = ip_addr.split(':')
-                    if len(ip) == 1:
-                        temp_iscsi_ip[ip_addr] = (
-                            {'ip_port': DEFAULT_ISCSI_PORT})
-                    elif len(ip) == 2:
-                        temp_iscsi_ip[ip[0]] = {'ip_port': ip[1]}
-                elif ":" in ip_addr:
-                    # v6
-                    if "]" in ip_addr:
-                        ip = ip_addr.split(']:')
-                        ip_addr_v6 = ip[0]
-                        ip_addr_v6 = ip_addr_v6.strip('[')
-                        port_v6 = ip[1]
-                        temp_iscsi_ip[ip_addr_v6] = {'ip_port': port_v6}
-                    else:
-                        temp_iscsi_ip[ip_addr] = (
-                            {'ip_port': DEFAULT_ISCSI_PORT})
-                else:
-                    LOG.warning("Invalid IP address format '%s'", ip_addr)
+            for ip_addr in backend_conf['hpe3par_iscsi_ips']:                
+                temp_iscsi_ip = common.client.initialize_iscsi_ports_client(ip_addr)
+                # if "." in ip_addr:
+                #     # v4
+                #     ip = ip_addr.split(':')
+                #     if len(ip) == 1:
+                #         temp_iscsi_ip[ip_addr] = (
+                #             {'ip_port': DEFAULT_ISCSI_PORT})
+                #     elif len(ip) == 2:
+                #         temp_iscsi_ip[ip[0]] = {'ip_port': ip[1]}
+                # elif ":" in ip_addr:
+                #     # v6
+                #     if "]" in ip_addr:
+                #         ip = ip_addr.split(']:')
+                #         ip_addr_v6 = ip[0]
+                #         ip_addr_v6 = ip_addr_v6.strip('[')
+                #         port_v6 = ip[1]
+                #         temp_iscsi_ip[ip_addr_v6] = {'ip_port': port_v6}
+                #     else:
+                #         temp_iscsi_ip[ip_addr] = (
+                #             {'ip_port': DEFAULT_ISCSI_PORT})
+                # else:
+                #     LOG.warning("Invalid IP address format '%s'", ip_addr)
 
         # add the single value iscsi_ip_address option to the IP dictionary.
         # This way we can see if it's a valid iSCSI IP. If it's not valid,
@@ -230,18 +231,24 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         iscsi_ports = common.get_active_iscsi_target_ports(remote_client)
         LOG.debug("iscsi_ports: %(iscsi_ports)s", {'iscsi_ports': iscsi_ports})
 
-        for port in iscsi_ports:
-            ip = port['IPAddr']
-            if ip in temp_iscsi_ip:
-                self._update_dicts(temp_iscsi_ip, iscsi_ip_list, ip, port)
+        # for port in iscsi_ports:
+        #     ip = port['IPAddr']
+        #     if ip in temp_iscsi_ip:
+        #         self._update_dicts(temp_iscsi_ip, iscsi_ip_list, ip, port)
+        #
+        #     if 'iSCSIVlans' in port:
+        #         for vip in port['iSCSIVlans']:
+        #             ip = vip['IPAddr']
+        #             if ip in temp_iscsi_ip:
+        #                 LOG.debug("vlan ip: %(ip)s", {'ip': ip})
+        #                 self._update_dicts(temp_iscsi_ip, iscsi_ip_list,
+        #                                    ip, port)
 
-            if 'iSCSIVlans' in port:
-                for vip in port['iSCSIVlans']:
-                    ip = vip['IPAddr']
-                    if ip in temp_iscsi_ip:
-                        LOG.debug("vlan ip: %(ip)s", {'ip': ip})
-                        self._update_dicts(temp_iscsi_ip, iscsi_ip_list,
-                                           ip, port)
+        iscsi_ip_list, temp_iscsi_ip = common.client.update_dicts_client(
+            temp_iscsi_ip,
+            iscsi_ip_list,
+            iscsi_ports
+        )
 
         # if the single value iscsi_ip_address option is still in the
         # temp dictionary it's because it defaults to $my_ip which doesn't
@@ -281,7 +288,8 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         for v in existing_vluns:
             portPos = common.build_portPos(
                 iscsi_ips[iscsi_ip]['nsp'])
-            if v['portPos'] == portPos:
+            if common.client.vlunPortPos(v) == portPos:
+            #if v['portPos'] == portPos:
                 vlun = v
                 break
         else:
@@ -329,7 +337,8 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         # VLUN should be created or an existing one used.
         lun_id = None
         for port in ready_ports:
-            iscsi_ip = port['IPAddr']
+            #iscsi_ip = port['IPAddr']
+            iscsi_ip = common.client.iscsi_ip_port(port)
             if iscsi_ip in target_portal_ips:
                 LOG.debug("for iscsi ip: %(ip)s, create vlun or use existing",
                           {'ip': iscsi_ip})
@@ -346,12 +355,19 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
                           "hpe3par_iscsi_ips list defined in "
                           "cinder.conf.", {'ip': iscsi_ip})
 
-            if 'iSCSIVlans' in port:
+            iSCSIVlans, obj = self.client.get_iSCSIVlans_Port(port)
+            if iSCSIVlans:
+            # if 'iSCSIVlans' in port:
+            #     LOG.debug("for port IPAddr: %(ip)s, the iSCSIVlans are: "
+            #               "%(vlans)s",
+            #               {'ip': iscsi_ip, 'vlans': port['iSCSIVlans']})
                 LOG.debug("for port IPAddr: %(ip)s, the iSCSIVlans are: "
                           "%(vlans)s",
-                          {'ip': iscsi_ip, 'vlans': port['iSCSIVlans']})
-                for vip in port['iSCSIVlans']:
-                    vlan_ip = vip['IPAddr']
+                          {'ip': iscsi_ip, 'vlans': obj})
+                #for vip in port['iSCSIVlans']:
+                for vip in obj:
+                    #vlan_ip = vip['IPAddr']
+                    vlan_ip = common.client.get_vlan_ip(vip)
                     # if vlan_ip is in cinder.conf and
                     # vlan_ip is not same as iscsi_ip
                     # only then proceed with lun creation
@@ -499,7 +515,7 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
                     # This happens during nova live-migration, we want to
                     # disable the picking of a different IP that we export
                     # the volume to, or nova complains.
-                    least_used_nsp = common.build_nsp(existing_vlun['portPos'])
+                    least_used_nsp = common.client.build_nsp(existing_vlun['portPos'])
 
                 if not least_used_nsp:
                     least_used_nsp = self._get_least_used_nsp_for_host(
@@ -642,29 +658,37 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         else:
             client_obj = common.client
 
-        hosts = client_obj.queryHost(iqns=iscsi_iqn)
+        host_found = client_obj.queryHostReturnHostname(iscsi_iqn=iscsi_iqn)
 
-        if hosts and hosts['members'] and 'name' in hosts['members'][0]:
-            host_found = hosts['members'][0]['name']
+        # hosts = client_obj.queryHost(iqns=iscsi_iqn)
+        #
+        # if hosts and hosts['members'] and 'name' in hosts['members'][0]:
+        #     host_found = hosts['members'][0]['name']
 
         if host_found is not None:
             return host_found
         else:
             persona_id = int(persona_id)
             try:
-                client_obj.createHost(hostname, iscsiNames=iscsi_iqn,
+                optional = common.client.createHostOptional(domain, persona_id)
+                client_obj.createHost(hostname, iscsiNames=iscsi_iqn, optional=optional)
+
+                """ client_obj.createHost(hostname, iscsiNames=iscsi_iqn,
                                       optional={'domain': domain,
-                                                'persona': persona_id})
+                                                'persona': persona_id}) """
             except hpeexceptions.HTTPConflict as path_conflict:
                 msg = "Create iSCSI host caught HTTP conflict code: %s"
                 with save_and_reraise_exception(reraise=False) as ctxt:
                     if path_conflict.get_code() is EXISTENT_PATH:
                         # Handle exception : EXISTENT_PATH - host WWN/iSCSI
                         # name already used by another host
-                        hosts = client_obj.queryHost(iqns=iscsi_iqn)
-                        if hosts and hosts['members'] and (
-                                'name' in hosts['members'][0]):
-                            hostname = hosts['members'][0]['name']
+                        hostname = client_obj.queryHostReturnHostname(iscsi_iqn=iscsi_iqn)
+                        # hosts = client_obj.queryHost(iqns=iscsi_iqn)
+                        # if hosts and hosts['members'] and (
+                        #         'name' in hosts['members'][0]):
+                        #     hostname = hosts['members'][0]['name']
+                        if hostname:
+                            return hostname
                         else:
                             # re-raise last caught exception
                             ctxt.reraise = True
@@ -677,8 +701,10 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
             return hostname
 
     def _modify_3par_iscsi_host(self, common, hostname, iscsi_iqn):
-        mod_request = {'pathOperation': common.client.HOST_EDIT_ADD,
-                       'iSCSINames': [iscsi_iqn]}
+        mod_request = common.client.create_modifyhost_request(iscsi_iqn=iscsi_iqn)
+
+        """ mod_request = {'pathOperation': common.client.HOST_EDIT_ADD,
+                       'iSCSINames': [iscsi_iqn]} """
 
         common.client.modifyHost(hostname, mod_request)
 
@@ -687,10 +713,12 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         if not common._client_conf['hpe3par_iscsi_chap_enabled']:
             return
 
-        mod_request = {'chapOperation': common.client.HOST_EDIT_ADD,
+        mod_request = common.client.create_mod_host_chap_request(username, password)
+
+        """ mod_request = {'chapOperation': common.client.HOST_EDIT_ADD,
                        'chapOperationMode': common.client.CHAP_INITIATOR,
                        'chapName': username,
-                       'chapSecret': password}
+                       'chapSecret': password} """
         common.client.modifyHost(hostname, mod_request)
 
     def _create_host(self, common, volume, connector,
@@ -706,9 +734,12 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         if remote_target:
             cpg = common._get_cpg_from_cpg_map(
                 remote_target['cpg_map'], src_cpg)
-            cpg_obj = remote_client.getCPG(cpg)
-            if 'domain' in cpg_obj:
-                domain = cpg_obj['domain']
+            
+            domain = remote_client.getCPGDomain(cpg)
+
+            # cpg_obj = remote_client.getCPG(cpg)
+            # if 'domain' in cpg_obj:
+            #     domain = cpg_obj['domain']
         else:
             cpg = common.get_cpg(volume, allowSnap=True)
             domain = common.get_domain(cpg)
@@ -744,11 +775,15 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
                                                     remote_client)
         else:
             if not remote_target:
-                if 'iSCSIPaths' not in host or len(host['iSCSIPaths']) < 1:
+                iSCSIPaths, len_iSCSIPaths, initiatorChapEnabled = common.client.host_iscsi_info(host)
+
+                #if 'iSCSIPaths' not in host or len(host['iSCSIPaths']) < 1:
+                if iSCSIPaths or len_iSCSIPaths < 1:
                     self._modify_3par_iscsi_host(
                         common, hostname,
                         connector['initiator'])
-                elif (not host['initiatorChapEnabled'] and
+                elif (#not host['initiatorChapEnabled'] and
+                      not initiatorChapEnabled and
                         common._client_conf['hpe3par_iscsi_chap_enabled']):
                     LOG.warning("Host exists without CHAP credentials set and "
                                 "has iSCSI attachments but CHAP is enabled. "
@@ -895,7 +930,7 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         for vlun in vluns['members']:
             if vlun['active']:
                 if vlun['hostname'] == hostname:
-                    temp_nsp = common.build_nsp(vlun['portPos'])
+                    temp_nsp = common.client.build_nsp(vlun['portPos'])
                     if temp_nsp in iscsi_nsps:
                         # this host already has an iscsi path, so use it
                         return temp_nsp
@@ -934,7 +969,7 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
 
         for vlun in vluns:
             if vlun['active']:
-                nsp = common.build_nsp(vlun['portPos'])
+                nsp = common.client.build_nsp(vlun['portPos'])
                 if nsp in nsp_counts:
                     nsp_counts[nsp] = nsp_counts[nsp] + 1
 
