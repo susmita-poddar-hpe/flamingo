@@ -434,8 +434,8 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         init_targ_map = {}
         numPaths = 0
 
-        """ for port in fc_ports:
-            all_target_wwns.append(port['portWWN']) """
+        # for port in fc_ports:
+        #     all_target_wwns.append(port['portWWN'])
         
         all_target_wwns = common.client.getPortsIqnOrWwnOrNqn(fc_ports, fc_port=True)
 
@@ -495,11 +495,9 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         else:
             persona_id = int(persona_id)
             try:
-                optional = common.client.createHostOptional(domain, persona_id)
-                client_obj.createHost(hostname, FCWwns=wwns, optional=optional)
-                """ client_obj.createHost(hostname, FCWwns=wwns,
+                client_obj.createHost(hostname, FCWwns=wwns,
                                       optional={'domain': domain,
-                                                'persona': persona_id}) """
+                                                'persona': persona_id})
             except hpeexceptions.HTTPConflict as path_conflict:
                 msg = "Create FC host caught HTTP conflict code: %s"
                 LOG.exception(msg, path_conflict.get_code())
@@ -507,12 +505,12 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
                     if path_conflict.get_code() is EXISTENT_PATH:
                         # Handle exception : EXISTENT_PATH - host WWN/iSCSI
                         # name already used by another host
-                        hostname = client_obj.queryHostReturnHostname(None, wwns)
+                        hostname = client_obj.queryHostReturnHostname(wwns=wwns)
 
-                        """ hosts = client_obj.queryHost(wwns=wwns)
-                        if hosts and hosts['members'] and (
-                                'name' in hosts['members'][0]):
-                            hostname = hosts['members'][0]['name'] """
+                        # hosts = client_obj.queryHost(wwns=wwns)
+                        # if hosts and hosts['members'] and (
+                        #         'name' in hosts['members'][0]):
+                        #     hostname = hosts['members'][0]['name']
                         
                         if hostname:
                             return hostname
@@ -532,8 +530,9 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         else:
             client_obj = common.client
 
-        """ mod_request = {'pathOperation': client_obj.HOST_EDIT_ADD,
-                       'FCWWNs': wwn} """
+        # mod_request = {'pathOperation': client_obj.HOST_EDIT_ADD,
+        #                'FCWWNs': wwn}
+        
         mod_request = client_obj.create_modifyhost_request(wwn=wwn)
         try:
             client_obj.modifyHost(hostname, mod_request)
@@ -620,22 +619,12 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         # if any wwns found that were not in host list,
         # add them to the host
         if (len(new_wwns) > 0):
-            """ self._modify_3par_fibrechan_host(
+            self._modify_3par_fibrechan_host(
                 common, host['name'], new_wwns, remote_client)
             if remote_client:
                 host = remote_client.getHost(host['name'])
             else:
-                host = common._get_3par_host(host['name']) """
-            
-            hostName = common.client.hostNameFromHost(host)
-            self._modify_3par_fibrechan_host(
-                common, hostName, new_wwns, remote_client)
-            if remote_client:
-                remoteHostName = remote_client.hostNameFromHost(host)
-                host = remote_client.getHost(remoteHostName)
-            else:
-                host = common._get_3par_host(hostName)
-
+                host = common._get_3par_host(host['name'])
         return host
 
     def _get_user_target(self, common):

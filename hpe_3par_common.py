@@ -1530,23 +1530,23 @@ class HPE3PARCommon(object):
     def _get_prioritized_host_on_3par(self, host, hosts, hostname):
 
         return self.client._get_prioritized_host_on_3par_client(host, hosts, hostname)
-        """ # Check whether host with wwn/iqn of initiator present on 3par
-        if hosts and hosts['members'] and 'name' in hosts['members'][0]:
-            # Retrieving 'host' and 'hosts' from 3par using hostname
-            # and wwn/iqn respectively. Compare hostname of 'host' and 'hosts',
-            # if they do not match it means 3par has a pre-existing host
-            # with some other name.
-            if host['name'] != hosts['members'][0]['name']:
-                hostname = hosts['members'][0]['name']
-                LOG.info(("Prioritize the host retrieved from wwn/iqn "
-                          "Hostname : %(hosts)s  is used instead "
-                          "of Hostname: %(host)s"),
-                         {'hosts': hostname,
-                          'host': host['name']})
-                host = self._get_3par_host(hostname)
-                return host, hostname
+            # # Check whether host with wwn/iqn of initiator present on 3par
+            # if hosts and hosts['members'] and 'name' in hosts['members'][0]:
+            #     # Retrieving 'host' and 'hosts' from 3par using hostname
+            #     # and wwn/iqn respectively. Compare hostname of 'host' and 'hosts',
+            #     # if they do not match it means 3par has a pre-existing host
+            #     # with some other name.
+            #     if host['name'] != hosts['members'][0]['name']:
+            #         hostname = hosts['members'][0]['name']
+            #         LOG.info(("Prioritize the host retrieved from wwn/iqn "
+            #                   "Hostname : %(hosts)s  is used instead "
+            #                   "of Hostname: %(host)s"),
+            #                  {'hosts': hostname,
+            #                   'host': host['name']})
+            #         host = self._get_3par_host(hostname)
+            #         return host, hostname
 
-        return host, hostname """
+            # return host, hostname
 
     def _create_3par_vlun(self, volume, hostname, nsp, lun_id=None,
                           remote_client=None):
@@ -1630,18 +1630,18 @@ class HPE3PARCommon(object):
             client_obj = self.client
             ports = self.get_ports()  
 
-        target_ports = self.client.get_active_target_ports_client(ports)  
+        target_ports = client_obj.get_active_target_ports_client(ports)  
 
-        """ target_ports = []
-        for port in ports['members']:
-            if (
-                port['mode'] == client_obj.PORT_MODE_TARGET and
-                port['linkState'] == client_obj.PORT_STATE_READY
-            ):
-                port['nsp'] = self.build_nsp(port['portPos'])
-                target_ports.append(port)
+        # target_ports = []
+        # for port in ports['members']:
+        #     if (
+        #         port['mode'] == client_obj.PORT_MODE_TARGET and
+        #         port['linkState'] == client_obj.PORT_STATE_READY
+        #     ):
+        #         port['nsp'] = self.build_nsp(port['portPos'])
+        #         target_ports.append(port)
 
-        return target_ports """
+        # return target_ports
         return target_ports
 
     def get_active_fc_target_ports(self, remote_client=None):
@@ -1651,12 +1651,12 @@ class HPE3PARCommon(object):
         else:
             client_obj = self.client
 
-        """ fc_ports = []
-        for port in ports:
-            if port['protocol'] == client_obj.PORT_PROTO_FC:
-                fc_ports.append(port)
+        # fc_ports = []
+        # for port in ports:
+        #     if port['protocol'] == client_obj.PORT_PROTO_FC:
+        #         fc_ports.append(port)
 
-        return fc_ports """
+        # return fc_ports
 
         fc_ports = client_obj.get_active_protocol_ports(ports, fc_proto=True)
         return fc_ports
@@ -1668,12 +1668,12 @@ class HPE3PARCommon(object):
         else:
             client_obj = self.client
 
-        """ iscsi_ports = []
-        for port in ports:
-            if port['protocol'] == client_obj.PORT_PROTO_ISCSI:
-                iscsi_ports.append(port)
+        # iscsi_ports = []
+        # for port in ports:
+        #     if port['protocol'] == client_obj.PORT_PROTO_ISCSI:
+        #         iscsi_ports.append(port)
 
-        return iscsi_ports """
+        # return iscsi_ports
 
         iscsi_ports = client_obj.get_active_protocol_ports(ports, iscsi_proto=True)
         return iscsi_ports
@@ -2082,37 +2082,37 @@ class HPE3PARCommon(object):
         latency = self._get_qos_value(qos, 'latency')
         priority = self._get_qos_value(qos, 'priority', 'normal')
 
-        """ qosRule = {}
-        if min_io:
-            qosRule['ioMinGoal'] = int(min_io)
-            if max_io is None:
-                qosRule['ioMaxLimit'] = int(min_io)
-        if max_io:
-            qosRule['ioMaxLimit'] = int(max_io)
-            if min_io is None:
-                qosRule['ioMinGoal'] = int(max_io)
-        if min_bw:
-            qosRule['bwMinGoalKB'] = int(min_bw) * units.Ki
-            if max_bw is None:
-                qosRule['bwMaxLimitKB'] = int(min_bw) * units.Ki
-        if max_bw:
-            qosRule['bwMaxLimitKB'] = int(max_bw) * units.Ki
-            if min_bw is None:
-                qosRule['bwMinGoalKB'] = int(max_bw) * units.Ki
-        if latency:
-            # latency could be values like 2, 5, etc or
-            # small values like 0.1, 0.02, etc.
-            # we are converting to float so that 0.1 doesn't become 0
-            latency = float(latency)
-            if latency >= 1:
-                # by default, latency in millisecs
-                qosRule['latencyGoal'] = int(latency)
-            else:
-                # latency < 1 Eg. 0.1, 0.02, etc
-                # convert latency to microsecs
-                qosRule['latencyGoaluSecs'] = int(latency * 1000)
-        if priority:
-            qosRule['priority'] = self.qos_priority_level.get(priority.lower()) """
+    # qosRule = {}
+    # if min_io:
+    #     qosRule['ioMinGoal'] = int(min_io)
+    #     if max_io is None:
+    #         qosRule['ioMaxLimit'] = int(min_io)
+    # if max_io:
+    #     qosRule['ioMaxLimit'] = int(max_io)
+    #     if min_io is None:
+    #         qosRule['ioMinGoal'] = int(max_io)
+    # if min_bw:
+    #     qosRule['bwMinGoalKB'] = int(min_bw) * units.Ki
+    #     if max_bw is None:
+    #         qosRule['bwMaxLimitKB'] = int(min_bw) * units.Ki
+    # if max_bw:
+    #     qosRule['bwMaxLimitKB'] = int(max_bw) * units.Ki
+    #     if min_bw is None:
+    #         qosRule['bwMinGoalKB'] = int(max_bw) * units.Ki
+    # if latency:
+    #     # latency could be values like 2, 5, etc or
+    #     # small values like 0.1, 0.02, etc.
+    #     # we are converting to float so that 0.1 doesn't become 0
+    #     latency = float(latency)
+    #     if latency >= 1:
+    #         # by default, latency in millisecs
+    #         qosRule['latencyGoal'] = int(latency)
+    #     else:
+    #         # latency < 1 Eg. 0.1, 0.02, etc
+    #         # convert latency to microsecs
+    #         qosRule['latencyGoaluSecs'] = int(latency * 1000)
+    # if priority:
+    #     qosRule['priority'] = self.qos_priority_level.get(priority.lower())
         
         qosRule = {}
 
@@ -2563,19 +2563,19 @@ class HPE3PARCommon(object):
             comment
         )
 
-        """ optional = {'tpvv': tpvv, 'online': True}
-        if snap_cpg is not None and self.API_VERSION < API_VERSION_2023:
-            optional['snapCPG'] = snap_cpg
+        # optional = {'tpvv': tpvv, 'online': True}
+        # if snap_cpg is not None and self.API_VERSION < API_VERSION_2023:
+        #     optional['snapCPG'] = snap_cpg
 
-        if self.API_VERSION >= DEDUP_API_VERSION:
-            optional['tdvv'] = tdvv
+        # if self.API_VERSION >= DEDUP_API_VERSION:
+        #     optional['tdvv'] = tdvv
 
-        if (compression is not None and
-                self.API_VERSION >= COMPRESSION_API_VERSION):
-            optional['compression'] = compression
+        # if (compression is not None and
+        #         self.API_VERSION >= COMPRESSION_API_VERSION):
+        #     optional['compression'] = compression
 
-        if comment:
-            optional['comment'] = comment """
+        # if comment:
+        #     optional['comment'] = comment
 
         body = self.client.copyVolume(src_name, dest_name, cpg, optional)
         return body['taskid']
@@ -4044,9 +4044,9 @@ class HPE3PARCommon(object):
                     existing_vlun = vlun
                     break
                 
-                """ if vlun['volumeName'] == vol_name:
-                    existing_vlun = vlun
-                    break """
+                # if vlun['volumeName'] == vol_name:
+                #     existing_vlun = vlun
+                #     break
         except hpeexceptions.HTTPNotFound:
             # ignore, no existing VLUNs were found
             LOG.debug("No existing VLUNs were found for host/volume "
@@ -4606,33 +4606,33 @@ class HPE3PARCommon(object):
                     )
                     targetName = target['backend_id']
                     rcg_target, sync_target = self.client.createRemoteCopyGroupTarget(
-                        self.API_VERSION,
-                        targetName,
-                        replication_mode_num,
-                        replication_sync_period, 
-                        cpg
+                         self.API_VERSION,
+                         targetName,
+                         replication_mode_num,
+                         replication_sync_period, 
+                         cpg
                     )
-                    """ rcg_target = {'targetName': target['backend_id'],
-                                  'mode': replication_mode_num,
-                                  'userCPG': cpg}
-                    if self.API_VERSION < API_VERSION_2023:
-                        rcg_target['snapCPG'] = cpg """
-                    
-                    """ rcg_targets.append(rcg_target) """
-                    """ sync_target = {'targetName': target['backend_id'],
-                                   'syncPeriod': replication_sync_period} """
+                    # rcg_target = {'targetName': target['backend_id'],
+                    #               'mode': replication_mode_num,
+                    #               'userCPG': cpg}
+                    # if self.API_VERSION < API_VERSION_2023:
+                    #     rcg_target['snapCPG'] = cpg
+                    # 
+                    # rcg_targets.append(rcg_target)
+                    # sync_target = {'targetName': target['backend_id'],
+                    #                'syncPeriod': replication_sync_period}
                     rcg_targets.append(rcg_target)
                     sync_targets.append(sync_target)
 
-            """ optional = {'localUserCPG': local_cpg}
-            if self.API_VERSION < API_VERSION_2023:
-                optional['localSnapCPG'] = vol_settings['snap_cpg'] """
+            # optional = {'localUserCPG': local_cpg}
+            # if self.API_VERSION < API_VERSION_2023:
+            #     optional['localSnapCPG'] = vol_settings['snap_cpg']
             
             pool = volume_utils.extract_host(volume['host'], level='pool')
             domain = self.get_domain(pool)
 
-            """ if domain:
-                optional["domain"] = domain """
+            #if domain:
+            #    optional["domain"] = domain
             
             snap_cpg = vol_settings['snap_cpg']
             optional = self.client.createRemoteCopyGroupOptional(self.API_VERSION, snap_cpg, local_cpg, domain)
@@ -4650,14 +4650,14 @@ class HPE3PARCommon(object):
             LOG.debug("created rcg %(name)s", {'name': rcg_name})
 
             # Add volume to remote copy group.
-            """ rcg_targets = []
-            for target in self._replication_targets:
-                # Only add targets that match the volumes replication mode.
-                if target['replication_mode'] == replication_mode_num:
-                    rcg_target = {'targetName': target['backend_id'],
-                                  'secVolumeName': vol_name}
-                    rcg_targets.append(rcg_target)
-            optional = {'volumeAutoCreation': True} """
+            #rcg_targets = []
+            #for target in self._replication_targets:
+            #    # Only add targets that match the volumes replication mode.
+            #    if target['replication_mode'] == replication_mode_num:
+            #        rcg_target = {'targetName': target['backend_id'],
+            #                      'secVolumeName': vol_name}
+            #        rcg_targets.append(rcg_target)
+            #optional = {'volumeAutoCreation': True}
 
             # Add volume to remote copy group.
             targets = self._replication_targets
@@ -4704,10 +4704,10 @@ class HPE3PARCommon(object):
 
                 if quorum_witness_ip:
                     LOG.debug('setting pp_params')
-                    """ pp_params = {'targets': [
-                        {'policies': {'autoFailover': True,
-                                      'pathManagement': True,
-                                      'autoRecover': True}}]} """
+                    #pp_params = {'targets': [
+                    #    {'policies': {'autoFailover': True,
+                    #                  'pathManagement': True,
+                    #                  'autoRecover': True}}]}
                     pp_params = self.client.modifyRemoteCopyGroupPpParams()
                     try:
                         self.client.modifyRemoteCopyGroup(rcg_name, pp_params)
@@ -4868,9 +4868,9 @@ class HPE3PARCommon(object):
         # Start remote copy.
         rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
 
-        """ rcg = self.client.getRemoteCopyGroup(rcg_name)
-        if not rcg['volumes']:
-            return """
+        #rcg = self.client.getRemoteCopyGroup(rcg_name)
+        #if not rcg['volumes']:
+        #    return
         
         rcg_volumes = self.client.getRemoteCopyGroupVolumes(rcg_name)
         if not rcg_volumes:
@@ -5010,12 +5010,12 @@ class HPE3PARCommon(object):
         try:
             rcg_volumes = self.client.getRemoteCopyGroupVolumes(rcg_name)
 
-            """ rcg = self.client.getRemoteCopyGroup(rcg_name)
-            # If volumes are not present in RCG, which means we need to set,
-            # RCG attributes.
-            if not len(rcg['volumes']):
-                self._set_rcg_attributes(volume, rcg_name)
- """
+            #rcg = self.client.getRemoteCopyGroup(rcg_name)
+            ## If volumes are not present in RCG, which means we need to set,
+            ## RCG attributes.
+            #if not len(rcg['volumes']):
+            #    self._set_rcg_attributes(volume, rcg_name)
+ 
             # If volumes are not present in RCG, which means we need to set,
             # RCG attributes.
             if not len(rcg_volumes):
@@ -5046,24 +5046,24 @@ class HPE3PARCommon(object):
 
         # Check and see if we are in periodic mode. If we are, update
         # Remote Copy Group to have a sync period.
-        """ if len(rcg['volumes']) and 'syncPeriod' in rcg['targets'][0]:
-            if replication_sync_period != int(rcg['targets'][0]['syncPeriod']):
-                for target in self._replication_targets:
-                    if target['replication_mode'] == replication_mode_num:
-                        sync_target = {'targetName': target['backend_id'],
-                                       'syncPeriod': replication_sync_period}
-                        sync_targets.append(sync_target)
-
-                opt = {'targets': sync_targets}
-
-                try:
-                    self.client.modifyRemoteCopyGroup(rcg_name, opt)
-                except Exception as ex:
-                    msg = (_("There was an error setting the sync period for "
-                             "the remote copy group: %s.") %
-                           str(ex))
-                    LOG.error(msg)
-                    raise exception.VolumeBackendAPIException(data=msg) """
+        # if len(rcg['volumes']) and 'syncPeriod' in rcg['targets'][0]:
+        #     if replication_sync_period != int(rcg['targets'][0]['syncPeriod']):
+        #         for target in self._replication_targets:
+        #             if target['replication_mode'] == replication_mode_num:
+        #                 sync_target = {'targetName': target['backend_id'],
+        #                                'syncPeriod': replication_sync_period}
+        #                 sync_targets.append(sync_target)
+        #
+        #         opt = {'targets': sync_targets}
+        #
+        #         try:
+        #             self.client.modifyRemoteCopyGroup(rcg_name, opt)
+        #         except Exception as ex:
+        #             msg = (_("There was an error setting the sync period for "
+        #                      "the remote copy group: %s.") %
+        #                    str(ex))
+        #             LOG.error(msg)
+        #             raise exception.VolumeBackendAPIException(data=msg)
         
         # Check and see if we are in periodic mode. If we are, update
         # Remote Copy Group to have a sync period.
@@ -5097,14 +5097,14 @@ class HPE3PARCommon(object):
                                                  local_cpg)
                 targetName = target['backend_id']
                 rcg_target = self.client.modifyRemoteCopyGroupTarget(targetName, cpg)
-                """ rcg_target = {'targetName': target['backend_id'],
-                              'remoteUserCPG': cpg,
-                              'remoteSnapCPG': cpg} """
+                #rcg_target = {'targetName': target['backend_id'],
+                #              'remoteUserCPG': cpg,
+                #              'remoteSnapCPG': cpg}
                 rcg_targets.append(rcg_target)
 
-        """ optional = {'localSnapCPG': vol_settings['snap_cpg'],
-                    'localUserCPG': local_cpg,
-                    'targets': rcg_targets} """
+        #optional = {'localSnapCPG': vol_settings['snap_cpg'],
+        #            'localUserCPG': local_cpg,
+        #            'targets': rcg_targets}
         
         optional = self.client.modifyRemoteCopyGroupOptional(rcg_targets, snap_cpg, local_cpg)
         
@@ -5122,13 +5122,12 @@ class HPE3PARCommon(object):
         rcg_targets = []
         vol_name = self._get_3par_vol_name(volume)
         replication_mode_num = self._get_replication_mode_from_volume(volume)
-        """ for target in self._replication_targets:
-            if target['replication_mode'] == replication_mode_num:
-                rcg_target = {'targetName': target['backend_id'],
-                              'secVolumeName': vol_name}
-                rcg_targets.append(rcg_target)
-        optional = {'volumeAutoCreation': True} """
-
+        #for target in self._replication_targets:
+        #    if target['replication_mode'] == replication_mode_num:
+        #        rcg_target = {'targetName': target['backend_id'],
+        #                      'secVolumeName': vol_name}
+        #        rcg_targets.append(rcg_target)
+        #optional = {'volumeAutoCreation': True}
 
         targets = self._replication_targets
         rcg_targets, optional = self.client.add_vol_to_remote_copy_group_params(

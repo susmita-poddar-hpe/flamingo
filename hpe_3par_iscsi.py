@@ -658,7 +658,7 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         else:
             client_obj = common.client
 
-        host_found = client_obj.queryHostReturnHostname(iscsi_iqn=iscsi_iqn)
+        host_found = client_obj.queryHostReturnHostname(iscsi_iqns=iscsi_iqn)
 
         # hosts = client_obj.queryHost(iqns=iscsi_iqn)
         #
@@ -670,19 +670,16 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         else:
             persona_id = int(persona_id)
             try:
-                optional = common.client.createHostOptional(domain, persona_id)
-                client_obj.createHost(hostname, iscsiNames=iscsi_iqn, optional=optional)
-
-                """ client_obj.createHost(hostname, iscsiNames=iscsi_iqn,
+                client_obj.createHost(hostname, iscsiNames=iscsi_iqn,
                                       optional={'domain': domain,
-                                                'persona': persona_id}) """
+                                                'persona': persona_id})
             except hpeexceptions.HTTPConflict as path_conflict:
                 msg = "Create iSCSI host caught HTTP conflict code: %s"
                 with save_and_reraise_exception(reraise=False) as ctxt:
                     if path_conflict.get_code() is EXISTENT_PATH:
                         # Handle exception : EXISTENT_PATH - host WWN/iSCSI
                         # name already used by another host
-                        hostname = client_obj.queryHostReturnHostname(iscsi_iqn=iscsi_iqn)
+                        hostname = client_obj.queryHostReturnHostname(iscsi_iqns=iscsi_iqn)
                         # hosts = client_obj.queryHost(iqns=iscsi_iqn)
                         # if hosts and hosts['members'] and (
                         #         'name' in hosts['members'][0]):
@@ -703,8 +700,8 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
     def _modify_3par_iscsi_host(self, common, hostname, iscsi_iqn):
         mod_request = common.client.create_modifyhost_request(iscsi_iqn=iscsi_iqn)
 
-        """ mod_request = {'pathOperation': common.client.HOST_EDIT_ADD,
-                       'iSCSINames': [iscsi_iqn]} """
+        # mod_request = {'pathOperation': common.client.HOST_EDIT_ADD,
+        #                'iSCSINames': [iscsi_iqn]}
 
         common.client.modifyHost(hostname, mod_request)
 
@@ -715,10 +712,11 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
 
         mod_request = common.client.create_mod_host_chap_request(username, password)
 
-        """ mod_request = {'chapOperation': common.client.HOST_EDIT_ADD,
-                       'chapOperationMode': common.client.CHAP_INITIATOR,
-                       'chapName': username,
-                       'chapSecret': password} """
+        # mod_request = {'chapOperation': common.client.HOST_EDIT_ADD,
+        #                'chapOperationMode': common.client.CHAP_INITIATOR,
+        #                'chapName': username,
+        #                'chapSecret': password}
+        
         common.client.modifyHost(hostname, mod_request)
 
     def _create_host(self, common, volume, connector,
