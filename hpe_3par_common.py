@@ -476,9 +476,8 @@ class HPE3PARCommon(object):
             self._get_3par_config(array_id=array_id)
             self.client = self._create_client(timeout=timeout)
             self.client_login()
-            # wsapi_version = self.client.getWsApiVersion()
-            # self.API_VERSION = wsapi_version['build']
-            self.API_VERSION = self.client.getWsApiVersionBuild()
+            wsapi_version = self.client.getWsApiVersion()
+            self.API_VERSION = wsapi_version['build']
 
             # If replication is properly configured, the primary array's
             # API version must meet the minimum requirements.
@@ -522,10 +521,8 @@ class HPE3PARCommon(object):
         if not stats or 'array_id' not in stats:
             try:
                 self.client_login()
-                #info = self.client.getStorageSystemInfo()
-                #name not used will throw ZUUL error
-                id, name = self.client.getStorageSystemIdName()
-                self.client.id = str(id)
+                info = self.client.getStorageSystemInfo()
+                self.client.id = str(info['id'])
             except Exception:
                 self.client.id = 0
             finally:
@@ -2019,14 +2016,14 @@ class HPE3PARCommon(object):
         ctxt = context.get_admin_context()
         return volume_types.get_volume_type(ctxt, type_id)
 
-    # def _get_key_value(self, hpe3par_keys, key, default=None):
-    #     if hpe3par_keys is not None and key in hpe3par_keys:
-    #         return hpe3par_keys[key]
-    #     else:
-    #         return default
+    def _get_key_value(self, hpe3par_keys, key, default=None):
+        if hpe3par_keys is not None and key in hpe3par_keys:
+            return hpe3par_keys[key]
+        else:
+            return default
 
     def _get_boolean_key_value(self, hpe3par_keys, key, default=False):
-        value = self.client._get_key_value(
+        value = self._get_key_value(
             hpe3par_keys, key, default)
         if isinstance(value, str):
             if value.lower() == 'true':
@@ -2131,7 +2128,7 @@ class HPE3PARCommon(object):
     def get_flash_cache_policy(self, hpe3par_keys):
         if hpe3par_keys is not None:
             # First check list of extra spec keys
-            val = self.client._get_key_value(hpe3par_keys, 'flash_cache', None)
+            val = self._get_key_value(hpe3par_keys, 'flash_cache', None)
             if val is not None:
                 # If requested, see if supported on back end
                 if self.API_VERSION < self.client.FLASH_CACHE_API_VERSION:
@@ -2153,7 +2150,7 @@ class HPE3PARCommon(object):
     def get_compression_policy(self, hpe3par_keys):
         if hpe3par_keys is not None:
             # here it should return true/false/None
-            val = self.client._get_key_value(hpe3par_keys, 'compression', None)
+            val = self._get_key_value(hpe3par_keys, 'compression', None)
             compression_support = False
         if val is not None:
             info = self.client.getStorageSystemInfo()
@@ -2280,7 +2277,7 @@ class HPE3PARCommon(object):
             volume_type = self._get_volume_type(type_id)
             if hpe3par_keys is None:
                 hpe3par_keys = self._get_keys_by_volume_type(volume_type)
-        persona_value = self.client._get_key_value(hpe3par_keys, 'persona',
+        persona_value = self._get_key_value(hpe3par_keys, 'persona',
                                             default_persona)
         return self.validate_persona(persona_value)
 
@@ -2299,7 +2296,7 @@ class HPE3PARCommon(object):
         if type_id is not None:
             volume_type = self._get_volume_type(type_id)
             hpe3par_keys = self._get_keys_by_volume_type(volume_type)
-            vvs_name = self.client._get_key_value(hpe3par_keys, 'vvs')
+            vvs_name = self._get_key_value(hpe3par_keys, 'vvs')
             if vvs_name is None:
                 qos = self._get_qos_by_volume_type(volume_type)
         return hpe3par_keys, qos, volume_type, vvs_name
@@ -2322,7 +2319,7 @@ class HPE3PARCommon(object):
         # If that doesn't work use the 1st CPG in the config as the default.
         default_cpg = pool or self._client_conf['hpe3par_cpg'][0]
 
-        cpg = self.client._get_key_value(hpe3par_keys, 'cpg', default_cpg)
+        cpg = self._get_key_value(hpe3par_keys, 'cpg', default_cpg)
         if cpg is not default_cpg:
             # The cpg was specified in a volume type extra spec so it
             # needs to be validated that it's in the correct domain.
@@ -2342,14 +2339,14 @@ class HPE3PARCommon(object):
         # extra spec, if not use hpe3par_cpg_snap from config as the
         # default.
         snap_cpg = self.config.hpe3par_cpg_snap
-        snap_cpg = self.client._get_key_value(hpe3par_keys, 'snap_cpg', snap_cpg)
+        snap_cpg = self._get_key_value(hpe3par_keys, 'snap_cpg', snap_cpg)
         # If it's still not set or empty then set it to the cpg.
         if not snap_cpg:
             snap_cpg = cpg
 
         # Check group level replication
         hpe3par_tiramisu = (
-            self.client._get_key_value(hpe3par_keys, 'group_replication'))
+            self._get_key_value(hpe3par_keys, 'group_replication'))
 
         # by default, set convert_to_base to False
         convert_to_base = self._get_boolean_key_value(
@@ -2357,7 +2354,7 @@ class HPE3PARCommon(object):
 
         # if provisioning is not set use thin
         default_prov = self.client.valid_prov_values[0]
-        prov_value = self.client._get_key_value(hpe3par_keys, 'provisioning',
+        prov_value = self._get_key_value(hpe3par_keys, 'provisioning',
                                          default_prov)
         # check for valid provisioning type
         if prov_value not in self.client.valid_prov_values:
@@ -3015,7 +3012,7 @@ class HPE3PARCommon(object):
             flash_cache = self.get_flash_cache_policy(hpe3par_keys)
 
             if qos or vvs_name or flash_cache is not None:
-                cpg_names = self.client._get_key_value(
+                cpg_names = self._get_key_value(
                     hpe3par_keys, 'cpg', self._client_conf['hpe3par_cpg'])
                 try:
                     self._add_volume_to_volume_set(volume, volume_name,
@@ -4284,18 +4281,12 @@ class HPE3PARCommon(object):
                 cl = None
                 try:
                     cl = self._create_replication_client(remote_array)
-                    # info = cl.getStorageSystemInfo()
-                    # remote_array['id'] = str(info['id'])
-                    # if array_id and array_id == info['id']:
-                    #     self._active_backend_id = str(info['name'])
-                    # TODO need to be discussed
-                    id, name = cl.getStorageSystemIdName()
-                    remote_array['id'] = str(id)
-                    if array_id and array_id == id:
-                        self._active_backend_id = str(name) 
+                    info = cl.getStorageSystemInfo()
+                    remote_array['id'] = str(info['id'])
+                    if array_id and array_id == info['id']:
+                        self._active_backend_id = str(info['name'])
 
-                    #wsapi_version = cl.getWsApiVersion()['build']
-                    wsapi_version = cl.getWsApiVersionBuild()
+                    wsapi_version = cl.getWsApiVersion()['build']
 
                     if wsapi_version < self.client.REMOTE_COPY_API_VERSION:
                         LOG.warning("The secondary array must have an API "
