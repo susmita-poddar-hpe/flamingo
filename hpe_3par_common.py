@@ -609,7 +609,7 @@ class HPE3PARCommon(object):
 
         pool = volume_utils.extract_host(group.host, level='pool')
         domain = self.get_domain(pool)
-        cg_name = self.client._get_3par_vvs_name(group.id)
+        cg_name = self._get_3par_vvs_name(group.id)
 
         extra = {'group_id': group.id}
         if group.group_snapshot_id is not None:
@@ -653,9 +653,9 @@ class HPE3PARCommon(object):
         replication_flag = False
         model_update = {'status': fields.GroupStatus.AVAILABLE}
 
-        vvs_name = self.client._get_3par_vvs_name(group.id)
+        vvs_name = self._get_3par_vvs_name(group.id)
         if group_snapshot and snapshots:
-            cgsnap_name = self.client._get_3par_snap_name(group_snapshot.id)
+            cgsnap_name = self._get_3par_snap_name(group_snapshot.id)
             snap_base = cgsnap_name
         elif source_group and source_vols:
             cg_id = source_group.id
@@ -665,9 +665,9 @@ class HPE3PARCommon(object):
             # Create a temporary snapshot of the volume set in order to
             # perform an online copy. These temp snapshots will be deleted
             # when the source consistency group is deleted.
-            temp_snap = self.client._get_3par_snap_name(snap_uuid, temp_snap=True)
+            temp_snap = self._get_3par_snap_name(snap_uuid, temp_snap=True)
             snap_shot_name = temp_snap + "-@count@"
-            copy_of_name = self.client._get_3par_vvs_name(cg_id)
+            copy_of_name = self._get_3par_vvs_name(cg_id)
             optional = {'expirationHours': 1}
             self.client.createSnapshotOfVolumeSet(snap_shot_name, copy_of_name,
                                                   optional=optional)
@@ -788,7 +788,7 @@ class HPE3PARCommon(object):
         if group.is_replicated:
             self._remove_volumes_and_remote_copy_group(group, volumes)
         try:
-            cg_name = self.client._get_3par_vvs_name(group.id)
+            cg_name = self._get_3par_vvs_name(group.id)
             self.client.deleteVolumeSet(cg_name)
         except hpeexceptions.HTTPNotFound:
             LOG.warning("Virtual Volume Set '%s' doesn't exist on array.",
@@ -824,7 +824,7 @@ class HPE3PARCommon(object):
         remove_volume = []
         vol_rep_status = fields.ReplicationStatus.ENABLED
 
-        volume_set_name = self.client._get_3par_vvs_name(group.id)
+        volume_set_name = self._get_3par_vvs_name(group.id)
 
         # If replication is enabled on a group then we need
         # to stop RCG, so we can add/remove in/from RCG.
@@ -901,9 +901,9 @@ class HPE3PARCommon(object):
             raise NotImplementedError()
 
         cg_id = group_snapshot.group_id
-        snap_shot_name = self.client._get_3par_snap_name(group_snapshot.id) + (
+        snap_shot_name = self._get_3par_snap_name(group_snapshot.id) + (
             "-@count@")
-        copy_of_name = self.client._get_3par_vvs_name(cg_id)
+        copy_of_name = self._get_3par_vvs_name(cg_id)
 
         extra = {'group_snapshot_id': group_snapshot.id}
         extra['group_id'] = cg_id
@@ -942,7 +942,7 @@ class HPE3PARCommon(object):
         """Deletes a group snapshot."""
         if not volume_utils.is_group_a_cg_snapshot_type(group_snapshot):
             raise NotImplementedError()
-        cgsnap_name = self.client._get_3par_snap_name(group_snapshot.id)
+        cgsnap_name = self._get_3par_snap_name(group_snapshot.id)
 
         snapshot_model_updates = []
         for i, snapshot in enumerate(snapshots):
@@ -1128,7 +1128,7 @@ class HPE3PARCommon(object):
             display_name = None
 
         # Generate the new snapshot information based on the new ID.
-        new_snap_name = self.client._get_3par_snap_name(snapshot['id'])
+        new_snap_name = self._get_3par_snap_name(snapshot['id'])
         new_comment['volume_id'] = volume['id']
         new_comment['volume_name'] = 'volume-' + volume['id']
         self._add_name_id_to_comment(new_comment, volume)
@@ -1240,8 +1240,8 @@ class HPE3PARCommon(object):
 
         # Rename the snapshots's name to ums-* format so that it can be
         # easily found later.
-        snap_name = self.client._get_3par_snap_name(snapshot['id'])
-        new_snap_name = self.client._get_3par_ums_name(snapshot['id'])
+        snap_name = self._get_3par_snap_name(snapshot['id'])
+        new_snap_name = self._get_3par_ums_name(snapshot['id'])
         self.client.modifyVolume(snap_name, {'newName': new_snap_name})
 
         LOG.info("Snapshot %(disp)s '%(vol)s' is no longer managed. "
@@ -1307,7 +1307,7 @@ class HPE3PARCommon(object):
         already_managed = {}
         for snap_obj in cinder_snapshots:
             cinder_snap_id = snap_obj.id
-            snap_name = self.client._get_3par_snap_name(cinder_snap_id)
+            snap_name = self._get_3par_snap_name(cinder_snap_id)
             already_managed[snap_name] = cinder_snap_id
 
         cinder_cpg = self._client_conf['hpe3par_cpg'][0]
@@ -1361,9 +1361,9 @@ class HPE3PARCommon(object):
             vol_name = existing_ref['source-name']
         elif 'source-id' in existing_ref:
             if is_snapshot:
-                vol_name = self.client._get_3par_ums_name(existing_ref['source-id'])
+                vol_name = self._get_3par_ums_name(existing_ref['source-id'])
             else:
-                vol_name = self.client._get_3par_unm_name(existing_ref['source-id'])
+                vol_name = self._get_3par_unm_name(existing_ref['source-id'])
         else:
             reason = _("Reference must contain source-name or source-id.")
             raise exception.ManageExistingInvalidReference(
@@ -1382,7 +1382,7 @@ class HPE3PARCommon(object):
             self._volume_of_hpe_tiramisu_type_and_part_of_group(volume))
         if volume_part_of_group:
             group = volume.get('group')
-            rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
+            rcg_name = self._get_3par_rcg_name_of_group(group.id)
         try:
             if _convert_to_base:
                 LOG.debug("Converting to base volume prior to growing.")
@@ -1447,7 +1447,7 @@ class HPE3PARCommon(object):
         # pass it, such as terminate_connection).
         if isinstance(volume_id, (objects.Volume, objects.Volume.model, dict)):
             volume_id = volume_id.get('_name_id') or volume_id['id']
-        volume_name = cls.client._encode_name(volume_id)
+        volume_name = cls._encode_name(volume_id)
         if temp_vol:
             # is this a temporary volume
             # this is done during migration
@@ -1456,27 +1456,27 @@ class HPE3PARCommon(object):
             prefix = "osv-%s"
         return prefix % volume_name
 
-    # def _get_3par_snap_name(self, snapshot_id, temp_snap=False):
-    #     snapshot_name = self.client._encode_name(snapshot_id)
-    #     if temp_snap:
-    #         # is this a temporary snapshot
-    #         # this is done during cloning
-    #         prefix = "tss-%s"
-    #     else:
-    #         prefix = "oss-%s"
-    #     return prefix % snapshot_name
+    def _get_3par_snap_name(self, snapshot_id, temp_snap=False):
+        snapshot_name = self._encode_name(snapshot_id)
+        if temp_snap:
+            # is this a temporary snapshot
+            # this is done during cloning
+            prefix = "tss-%s"
+        else:
+            prefix = "oss-%s"
+        return prefix % snapshot_name
 
-    # def _get_3par_ums_name(self, snapshot_id):
-    #     ums_name = self.client._encode_name(snapshot_id)
-    #     return "ums-%s" % ums_name
+    def _get_3par_ums_name(self, snapshot_id):
+        ums_name = self._encode_name(snapshot_id)
+        return "ums-%s" % ums_name
 
-    # def _get_3par_vvs_name(self, volume_id):
-    #     vvs_name = self.client._encode_name(volume_id)
-    #     return "vvs-%s" % vvs_name
+    def _get_3par_vvs_name(self, volume_id):
+        vvs_name = self._encode_name(volume_id)
+        return "vvs-%s" % vvs_name
 
-    # def _get_3par_unm_name(self, volume_id):
-    #     unm_name = self.client._encode_name(volume_id)
-    #     return "unm-%s" % unm_name
+    def _get_3par_unm_name(self, volume_id):
+        unm_name = self._encode_name(volume_id)
+        return "unm-%s" % unm_name
 
     # v2 replication conversion
     def _get_3par_rcg_name(self, volume):
@@ -1492,7 +1492,7 @@ class HPE3PARCommon(object):
             return rcg_name
         else:
            # by default, rcg_name is similar to volume name
-            rcg_name = self.client._encode_name(volume.get('_name_id')
+            rcg_name = self._encode_name(volume.get('_name_id')
                                          or volume['id'])
             rcg = "rcg-%s" % rcg_name
             return rcg[:22]
@@ -1501,18 +1501,18 @@ class HPE3PARCommon(object):
         return self._get_3par_rcg_name(volume) + ".r" + (
             str(provider_location))
 
-    # @staticmethod
-    # def _encode_name(name):
-    #     uuid_str = name.replace("-", "")
-    #     vol_uuid = uuid.UUID('urn:uuid:%s' % uuid_str)
-    #     vol_encoded = base64.encode_as_text(vol_uuid.bytes)
+    @staticmethod
+    def _encode_name(name):
+        uuid_str = name.replace("-", "")
+        vol_uuid = uuid.UUID('urn:uuid:%s' % uuid_str)
+        vol_encoded = base64.encode_as_text(vol_uuid.bytes)
 
-    #     # 3par doesn't allow +, nor /
-    #     vol_encoded = vol_encoded.replace('+', '.')
-    #     vol_encoded = vol_encoded.replace('/', '-')
-    #     # strip off the == as 3par doesn't like those.
-    #     vol_encoded = vol_encoded.replace('=', '')
-    #     return vol_encoded
+        # 3par doesn't allow +, nor /
+        vol_encoded = vol_encoded.replace('+', '.')
+        vol_encoded = vol_encoded.replace('/', '-')
+        # strip off the == as 3par doesn't like those.
+        vol_encoded = vol_encoded.replace('=', '')
+        return vol_encoded
 
     def _capacity_from_size(self, vol_size):
         # because 3PAR volume sizes are in Mebibytes.
@@ -2211,7 +2211,7 @@ class HPE3PARCommon(object):
                 LOG.error(msg)
                 raise exception.InvalidInput(reason=msg)
         else:
-            vvs_name = self.client._get_3par_vvs_name(volume['id'])
+            vvs_name = self._get_3par_vvs_name(volume['id'])
             domain = self.get_domain(cpg)
             self.client.createVolumeSet(vvs_name, domain)
             try:
@@ -2464,7 +2464,7 @@ class HPE3PARCommon(object):
             cg_id = volume.get('group_id', None)
             group = volume.get('group', None)
             if cg_id and consis_group_snap_type:
-                vvs_name = self.client._get_3par_vvs_name(cg_id)
+                vvs_name = self._get_3par_vvs_name(cg_id)
 
             type_id = volume.get('volume_type_id', None)
             if type_id is not None:
@@ -2639,7 +2639,7 @@ class HPE3PARCommon(object):
         snap_uuid = uuid.uuid4().hex
 
         # this will be named tss-%s
-        snap_name = self.client._get_3par_snap_name(snap_uuid, temp_snap=True)
+        snap_name = self._get_3par_snap_name(snap_uuid, temp_snap=True)
 
         extra = {'volume_name': volume['name'],
                  'volume_id': volume['id']}
@@ -2852,7 +2852,7 @@ class HPE3PARCommon(object):
             # don't use current osv_name (which was from name_id)
             # get new osv_name from id
             LOG.debug("get osv_name from volume id")
-            volume_name = self.client._encode_name(volume.id)
+            volume_name = self._encode_name(volume.id)
             volume_name = "osv-" + volume_name
 
         LOG.debug("volume_name: %(name)s", {'name': volume_name})
@@ -2953,7 +2953,7 @@ class HPE3PARCommon(object):
 
         try:
             if not snap_name:
-                snap_name = self.client._get_3par_snap_name(snapshot['id'])
+                snap_name = self._get_3par_snap_name(snapshot['id'])
             volume_name = self._get_3par_vol_name(volume)
 
             extra = {'volume_id': volume['id'],
@@ -3052,7 +3052,7 @@ class HPE3PARCommon(object):
         LOG.debug("Create Snapshot\n%s", pprint.pformat(snapshot))
 
         try:
-            snap_name = self.client._get_3par_snap_name(snapshot['id'])
+            snap_name = self._get_3par_snap_name(snapshot['id'])
             # Don't use the "volume_id" from the snapshot directly in case the
             # volume has been migrated and uses a different ID in the backend.
             # This may trigger OVO lazy loading.  Use dict compatibility to
@@ -3219,8 +3219,8 @@ class HPE3PARCommon(object):
         """Rename the vvsets after a migration.
 
         """
-        vvs_name_src = self.client._get_3par_vvs_name(src_volume['id'])
-        vvs_name_dest = self.client._get_3par_vvs_name(dest_volume['id'])
+        vvs_name_src = self._get_3par_vvs_name(src_volume['id'])
+        vvs_name_dest = self._get_3par_vvs_name(dest_volume['id'])
 
         # There can be parallel execution. Ensure that temp_vvs_name is unique
         # eg. if vvs_name_src is: vvs-DK3sEwkPTCqVHdHKHtwZBA
@@ -3418,7 +3418,7 @@ class HPE3PARCommon(object):
                   {'id': snapshot['id'], 'name': pprint.pformat(snapshot)})
 
         try:
-            snap_name = self.client._get_3par_snap_name(snapshot['id'])
+            snap_name = self._get_3par_snap_name(snapshot['id'])
             self.client.deleteVolume(snap_name)
         except hpeexceptions.HTTPForbidden as ex:
             LOG.error("Exception: %s", ex)
@@ -3962,13 +3962,13 @@ class HPE3PARCommon(object):
         :param snapshot: A dictionary describing the latest snapshot
         """
         volume_name = self._get_3par_vol_name(volume)
-        snapshot_name = self.client._get_3par_snap_name(snapshot['id'])
+        snapshot_name = self._get_3par_snap_name(snapshot['id'])
         rcg_name = self._get_3par_rcg_name(volume)
         volume_part_of_group = (
             self._volume_of_hpe_tiramisu_type_and_part_of_group(volume))
         if volume_part_of_group:
             group = volume.get('group')
-            rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
+            rcg_name = self._get_3par_rcg_name_of_group(group.id)
 
         optional = {}
         replication_flag = self._volume_of_replicated_type(
@@ -4815,7 +4815,7 @@ class HPE3PARCommon(object):
         # volume is part of a volume set.
         LOG.debug("_delete_vvset. vol_id: %(id)s", {'id': volume['id']})
         volume_name = self._get_3par_vol_name(volume)
-        vvset_name = self.client._get_3par_vvs_name(volume['id'])
+        vvset_name = self._get_3par_vvs_name(volume['id'])
 
         try:
             # find vvset
@@ -4837,14 +4837,14 @@ class HPE3PARCommon(object):
                       {'volume_name': volume_name, 'vvset_name': vvset_name})
             self.client.removeVolumeFromVolumeSet(vvset_name, volume_name)
 
-    # def _get_3par_rcg_name_of_group(self, group_id):
-    #     rcg_name = self.client._encode_name(group_id)
-    #     rcg = "rcg-%s" % rcg_name
-    #     return rcg[:22]
+    def _get_3par_rcg_name_of_group(self, group_id):
+        rcg_name = self._encode_name(group_id)
+        rcg = "rcg-%s" % rcg_name
+        return rcg[:22]
 
-    # def _get_3par_remote_rcg_name_of_group(self, group_id, provider_location):
-    #     return self.client._get_3par_rcg_name_of_group(group_id) + ".r" + (
-    #         str(provider_location))
+    def _get_3par_remote_rcg_name_of_group(self, group_id, provider_location):
+        return self._get_3par_rcg_name_of_group(group_id) + ".r" + (
+            str(provider_location))
 
     def _get_hpe3par_tiramisu_value(self, volume_type):
         hpe3par_tiramisu = False
@@ -4857,7 +4857,7 @@ class HPE3PARCommon(object):
 
     def _stop_remote_copy_group(self, group):
         # Stop remote copy.
-        rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
+        rcg_name = self._get_3par_rcg_name_of_group(group.id)
         try:
             self.client.stopRemoteCopy(rcg_name)
         except Exception:
@@ -4866,7 +4866,7 @@ class HPE3PARCommon(object):
 
     def _start_remote_copy_group(self, group):
         # Start remote copy.
-        rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
+        rcg_name = self._get_3par_rcg_name_of_group(group.id)
 
         #rcg = self.client.getRemoteCopyGroup(rcg_name)
         #if not rcg['volumes']:
@@ -4980,7 +4980,7 @@ class HPE3PARCommon(object):
             raise exception.InvalidInput(reason=msg)
 
     def _remove_vol_from_remote_copy_group(self, group, volume):
-        rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
+        rcg_name = self._get_3par_rcg_name_of_group(group.id)
         vol_name = self._get_3par_vol_name(volume)
 
         try:
@@ -5006,7 +5006,7 @@ class HPE3PARCommon(object):
         self._start_remote_copy_group(group)
 
     def _add_vol_to_remote_copy_group(self, group, volume):
-        rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
+        rcg_name = self._get_3par_rcg_name_of_group(group.id)
         try:
             rcg_volumes = self.client.getRemoteCopyGroupVolumes(rcg_name)
 
@@ -5147,19 +5147,19 @@ class HPE3PARCommon(object):
             LOG.error(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
-    # def _is_group_in_remote_copy_group(self, group):
-    #         rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
-    #         try:
-    #             self.client.getRemoteCopyGroup(rcg_name)
-    #             return True
-    #         except hpeexceptions.HTTPNotFound:
-    #             return False
+    def _is_group_in_remote_copy_group(self, group):
+        rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
+        try:
+            self.client.getRemoteCopyGroup(rcg_name)
+            return True
+        except hpeexceptions.HTTPNotFound:
+            return False
 
     def _remove_volumes_and_remote_copy_group(self, group, volumes):
-        if not self.client._is_group_in_remote_copy_group(group):
+        if not self._is_group_in_remote_copy_group(group):
             return True
 
-        rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
+        rcg_name = self._get_3par_rcg_name_of_group(group.id)
         # Stop remote copy.
         try:
             self.client.stopRemoteCopy(rcg_name)
@@ -5241,7 +5241,7 @@ class HPE3PARCommon(object):
             LOG.error(msg)
             raise exception.VolumeBackendAPIException(data=msg)
 
-        rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
+        rcg_name = self._get_3par_rcg_name_of_group(group.id)
         replication_mode_num = (
             self._get_replication_mode_from_volume_type(group.volume_types[0]))
 
@@ -5286,7 +5286,7 @@ class HPE3PARCommon(object):
 
     def _group_failover_replication(self, failover_target, group,
                                     provider_location):
-        rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
+        rcg_name = self._get_3par_rcg_name_of_group(group.id)
         try:
             # Try and stop remote-copy on main array. We eat the
             # exception here because when an array goes down, the
@@ -5297,7 +5297,7 @@ class HPE3PARCommon(object):
 
         try:
             # Failover to secondary array.
-            remote_rcg_name = self.client._get_3par_remote_rcg_name_of_group(
+            remote_rcg_name = self._get_3par_remote_rcg_name_of_group(
                 group.id, provider_location)
             cl = self._create_replication_client(failover_target)
             cl.recoverRemoteCopyGroupFromDisaster(
@@ -5313,7 +5313,7 @@ class HPE3PARCommon(object):
 
     def _group_failback_replication(self, failback_target, group,
                                     provider_location):
-        remote_rcg_name = self.client._get_3par_remote_rcg_name_of_group(
+        remote_rcg_name = self._get_3par_remote_rcg_name_of_group(
             group.id, provider_location)
         try:
             cl = self._create_replication_client(failback_target)
@@ -5352,8 +5352,8 @@ class HPE3PARCommon(object):
             return model_update, None
         
         try:
-            vvs_name = self.client._get_3par_vvs_name(group.id)
-            rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
+            vvs_name = self._get_3par_vvs_name(group.id)
+            rcg_name = self._get_3par_rcg_name_of_group(group.id)
 
             # Check VV and RCG exist on 3par,
             # if RCG exist then start RCG
@@ -5396,8 +5396,8 @@ class HPE3PARCommon(object):
             return model_update, None
 
         try:
-            vvs_name = self.client._get_3par_vvs_name(group.id)
-            rcg_name = self.client._get_3par_rcg_name_of_group(group.id)
+            vvs_name = self._get_3par_vvs_name(group.id)
+            rcg_name = self._get_3par_rcg_name_of_group(group.id)
 
             # Check VV and RCG exist on 3par,
             # if RCG exist then stop RCG
@@ -5741,7 +5741,7 @@ class ModifySpecsTask(flow_utils.CinderTask):
             # If any extra or qos specs changed then remove the old
             # special VV set that we create.  We'll recreate it
             # as needed.
-            vvs_name = common.client._get_3par_vvs_name(volume['id'])
+            vvs_name = self._get_3par_vvs_name(volume['id'])
             try:
                 common.client.deleteVolumeSet(vvs_name)
                 self.needs_revert = True
@@ -5764,7 +5764,7 @@ class ModifySpecsTask(flow_utils.CinderTask):
             # If any extra or qos specs changed then remove the old
             # special VV set that we create and recreate it per
             # the old type specs.
-            vvs_name = common.client._get_3par_vvs_name(volume['id'])
+            vvs_name = self._get_3par_vvs_name(volume['id'])
             try:
                 common.client.deleteVolumeSet(vvs_name)
             except hpeexceptions.HTTPNotFound as ex:
