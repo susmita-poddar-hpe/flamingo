@@ -561,17 +561,16 @@ class HPE3PARCommon(object):
 
     def get_domain(self, cpg_name):
         try:
-            domain = self.client.getCPGDomain(cpg_name)
-            #cpg = self.client.getCPG(cpg_name)
+            cpg = self.client.getCPG(cpg_name)
         except hpeexceptions.HTTPNotFound:
             err = (_("Failed to get domain because CPG (%s) doesn't "
                      "exist on array.") % cpg_name)
             LOG.error(err)
             raise exception.InvalidInput(reason=err)
 
-        # if 'domain' in cpg:
-        #     return cpg['domain']
-        return domain
+        if 'domain' in cpg:
+            return cpg['domain']
+        return None
 
     def extend_volume(self, volume, new_size):
         volume_name = self._get_3par_vol_name(volume)
@@ -1891,14 +1890,11 @@ class HPE3PARCommon(object):
         In order to export a volume on a 3PAR box, we have to create a VLUN.
         """
         volume_name = self._get_3par_vol_name(volume)
-
-        host_name = self.client.hostNameFromHost(host)
-        
-        vlun_info = self._create_3par_vlun(volume_name, host_name, nsp,
+        vlun_info = self._create_3par_vlun(volume_name, host['name'], nsp,
                                            lun_id=lun_id,
                                            remote_client=remote_client)
         return self._get_vlun(volume_name,
-                              host_name,
+                              host['name'],
                               vlun_info['lun_id'],
                               nsp,
                               remote_client)
@@ -4026,24 +4022,15 @@ class HPE3PARCommon(object):
         try:
             vol_name = self._get_3par_vol_name(volume)
             if remote_client:
-                client_obj = remote_client
-                
+                host_vluns = remote_client.getHostVLUNs(host['name'])
             else:
-                client_obj = self.client
-                
-            hostName = client_obj.hostNameFromHost(host)
-            host_vluns = client_obj.getHostVLUNs(hostName)
+                host_vluns = self.client.getHostVLUNs(host['name'])
 
             # The first existing VLUN found will be returned.
             for vlun in host_vluns:
-                vlunVolName = client_obj.volumeNameForVLun(vlun)
-                if vlunVolName == vol_name:
+                if vlun['volumeName'] == vol_name:
                     existing_vlun = vlun
                     break
-                
-                # if vlun['volumeName'] == vol_name:
-                #     existing_vlun = vlun
-                #     break
         except hpeexceptions.HTTPNotFound:
             # ignore, no existing VLUNs were found
             LOG.debug("No existing VLUNs were found for host/volume "
@@ -4057,23 +4044,18 @@ class HPE3PARCommon(object):
         try:
             vol_name = self._get_3par_vol_name(volume)
             if remote_client:
-                host_name = remote_client.hostNameFromHost(host)
-                #host_vluns = remote_client.getHostVLUNs(host['name'])
-                host_vluns = remote_client.getHostVLUNs(host_name)
+                host_vluns = remote_client.getHostVLUNs(host['name'])
             else:
-                host_name = self.client.hostNameFromHost(host)
-                #host_vluns = self.client.getHostVLUNs(host['name'])
-                host_vluns = self.client.getHostVLUNs(host_name)
+                host_vluns = self.client.getHostVLUNs(host['name'])
 
             for vlun in host_vluns:
-                if self.client.volumeNameForVLun(vlun) == vol_name:
-                #if vlun['volumeName'] == vol_name:
+                if vlun['volumeName'] == vol_name:
                     existing_vluns.append(vlun)
         except hpeexceptions.HTTPNotFound:
             # ignore, no existing VLUNs were found
             LOG.debug("No existing VLUNs were found for host/volume "
                       "combination: %(host)s, %(vol)s",
-                      {'host': host_name,
+                      {'host': host['name'],
                        'vol': vol_name})
         return existing_vluns
 

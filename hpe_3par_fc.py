@@ -552,12 +552,9 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         if remote_target:
             cpg = common._get_cpg_from_cpg_map(
                 remote_target['cpg_map'], src_cpg)
-            
-            domain = remote_client.getCPGDomain(cpg)
-
-            # cpg_obj = remote_client.getCPG(cpg)
-            # if 'domain' in cpg_obj:
-            #     domain = cpg_obj['domain']
+            cpg_obj = remote_client.getCPG(cpg)
+            if 'domain' in cpg_obj:
+                domain = cpg_obj['domain']
         else:
             cpg = common.get_cpg(volume, allowSnap=True)
             domain = common.get_domain(cpg)
