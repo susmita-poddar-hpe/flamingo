@@ -429,13 +429,15 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         """Build the target_wwns and the initiator target map."""
 
         fc_ports = common.get_active_fc_target_ports(remote_client)
-        all_target_wwns = []
+        #all_target_wwns = []
         target_wwns = []
         init_targ_map = {}
         numPaths = 0
 
-        for port in fc_ports:
-            all_target_wwns.append(port['portWWN'])
+        # for port in fc_ports:
+        #     all_target_wwns.append(port['portWWN'])
+        
+        all_target_wwns = common.client.getPortsIqnOrWwnOrNqn(fc_ports, fc_port=True)
 
         if self.lookup_service is not None:
             # use FC san lookup to determine which NSPs to use
@@ -481,10 +483,12 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         else:
             client_obj = common.client
 
-        hosts = client_obj.queryHost(wwns=wwns)
+        host_found = client_obj.queryHostReturnHostname(wwns=wwns)
 
-        if hosts and hosts['members'] and 'name' in hosts['members'][0]:
-            host_found = hosts['members'][0]['name']
+    # hosts = client_obj.queryHost(wwns=wwns)
+    #
+    # if hosts and hosts['members'] and 'name' in hosts['members'][0]:
+    #     host_found = hosts['members'][0]['name']
 
         if host_found is not None:
             return host_found
@@ -501,10 +505,15 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
                     if path_conflict.get_code() is EXISTENT_PATH:
                         # Handle exception : EXISTENT_PATH - host WWN/iSCSI
                         # name already used by another host
-                        hosts = client_obj.queryHost(wwns=wwns)
-                        if hosts and hosts['members'] and (
-                                'name' in hosts['members'][0]):
-                            hostname = hosts['members'][0]['name']
+                        hostname = client_obj.queryHostReturnHostname(wwns=wwns)
+
+                        # hosts = client_obj.queryHost(wwns=wwns)
+                        # if hosts and hosts['members'] and (
+                        #         'name' in hosts['members'][0]):
+                        #     hostname = hosts['members'][0]['name']
+                        
+                        if hostname:
+                            return hostname
                         else:
                             # re rasise last caught exception
                             ctxt.reraise = True
@@ -521,8 +530,10 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         else:
             client_obj = common.client
 
-        mod_request = {'pathOperation': client_obj.HOST_EDIT_ADD,
-                       'FCWWNs': wwn}
+        # mod_request = {'pathOperation': client_obj.HOST_EDIT_ADD,
+        #                'FCWWNs': wwn}
+        
+        mod_request = client_obj.create_modifyhost_request(wwn=wwn)
         try:
             client_obj.modifyHost(hostname, mod_request)
         except hpeexceptions.HTTPConflict as path_conflict:
@@ -589,12 +600,12 @@ class HPE3PARFCDriver(hpebasedriver.HPE3PARDriverBase):
         """
         # get the currently configured wwns
         # from the host's FC paths
-        host_wwns = []
-        if 'FCPaths' in host:
-            for path in host['FCPaths']:
-                wwn = path.get('wwn', None)
-                if wwn is not None:
-                    host_wwns.append(wwn.lower())
+        host_wwns = common.client.get_host_wwns(host)
+        # if 'FCPaths' in host:
+        #     for path in host['FCPaths']:
+        #         wwn = path.get('wwn', None)
+        #         if wwn is not None:
+        #             host_wwns.append(wwn.lower())
 
         # lower case all wwns in the compare list
         compare_wwns = [x.lower() for x in wwns]
